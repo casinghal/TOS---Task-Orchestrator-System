@@ -228,14 +228,28 @@ export default function Home() {
     log(user.id, "Changed module access", "ModuleFlag", item?.name ?? "Module");
   }
 
-  if (!user) return <LoginScreen onLogin={setSessionUserId} team={teamList} />;
+  function login(userId: string) {
+    setSessionUserId(userId);
+    setActiveSection("tasks");
+    setSelectedTaskId(null);
+    setModal(null);
+  }
+
+  function logout() {
+    setSessionUserId(null);
+    setActiveSection("tasks");
+    setSelectedTaskId(null);
+    setModal(null);
+  }
+
+  if (!user) return <LoginScreen onLogin={login} team={teamList} />;
 
   return (
     <main className="min-h-screen text-slate-900">
       <div className="flex min-h-screen">
         <Sidebar active={activeSection} setActive={setActiveSection} user={user} />
         <section className="flex min-w-0 flex-1 flex-col">
-          <Header active={activeSection} canCreateTask={canCreateTask} open={setModal} user={user} logout={() => setSessionUserId(null)} />
+          <Header active={activeSection} canCreateTask={canCreateTask} open={setModal} setActive={setActiveSection} user={user} logout={logout} />
           <div className="p-4 md:p-6">
             {activeSection === "tasks" && <TasksView stats={stats} tasks={visibleTasks} allTasks={taskList} clients={clientList} team={teamList} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} view={viewMode} setView={setViewMode} openTask={setSelectedTaskId} user={user} />}
             {activeSection === "clients" && <ClientsView clients={clientList} tasks={taskList} open={() => setModal("client")} />}
@@ -290,10 +304,13 @@ function Sidebar({ active, setActive, user }: { active: Section; setActive: (sec
   </aside>;
 }
 
-function Header({ active, canCreateTask, logout, open, user }: { active: Section; canCreateTask: boolean; logout: () => void; open: (modal: Modal) => void; user: TeamMember }) {
+function Header({ active, canCreateTask, logout, open, setActive, user }: { active: Section; canCreateTask: boolean; logout: () => void; open: (modal: Modal) => void; setActive: (section: Section) => void; user: TeamMember }) {
   const title = navItems.find((item) => item.id === active)?.label ?? "TOS";
   const nextModal: Modal = active === "clients" ? "client" : active === "team" ? "team" : "task";
-  return <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/86 px-4 py-3 backdrop-blur md:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-blue-700">Phase 1 workspace</p><h1 className="text-xl font-semibold text-slate-950 md:text-2xl">{title}</h1></div><div className="flex flex-wrap items-center gap-2"><span className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:inline-flex">{user.name}</span><button className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" type="button"><Bell size={18} /></button><button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" disabled={active === "tasks" && !canCreateTask} onClick={() => open(nextModal)} type="button"><Plus size={18} />{active === "clients" ? "Add Client" : active === "team" ? "Add User" : "Create Task"}</button><button className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={logout} type="button"><LogOut size={18} /></button></div></div></header>;
+  const canManageTeam = user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin";
+  const canUsePrimaryAction = active === "team" ? canManageTeam : active === "clients" ? canCreateTask : canCreateTask;
+  const disabledReason = active === "team" ? "Only Platform Owner and Firm Admin can add users" : "Only Firm Admin, Partner, and Manager can create this record in Phase 1";
+  return <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/86 px-4 py-3 backdrop-blur md:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-blue-700">Phase 1 workspace</p><h1 className="text-xl font-semibold text-slate-950 md:text-2xl">{title}</h1></div><div className="flex flex-wrap items-center gap-2"><span className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:inline-flex">{user.name}</span><button aria-label="Notifications prepared for reminder layer" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400" disabled title="Notifications will activate with email reminders" type="button"><Bell size={18} /></button><button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" disabled={!canUsePrimaryAction} onClick={() => open(nextModal)} title={!canUsePrimaryAction ? disabledReason : undefined} type="button"><Plus size={18} />{active === "clients" ? "Add Client" : active === "team" ? "Add User" : "Create Task"}</button><button aria-label="Log out" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={logout} type="button"><LogOut size={18} /></button></div></div><nav className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden" aria-label="Mobile workspace navigation">{navItems.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600") + " inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"} onClick={() => setActive(item.id)} type="button"><Icon size={16} />{item.label}</button>; })}</nav></header>;
 }
 
 function TasksView({ allTasks, clients, openTask, query, setQuery, setStatusFilter, setView, stats, statusFilter, tasks, team, user, view }: { allTasks: Task[]; clients: Client[]; openTask: (id: string) => void; query: string; setQuery: (value: string) => void; setStatusFilter: (value: "All" | TaskStatus) => void; setView: (value: ViewMode) => void; stats: { overdue: number; dueToday: number; underReview: number; closed: number }; statusFilter: "All" | TaskStatus; tasks: Task[]; team: TeamMember[]; user: TeamMember; view: ViewMode }) {
@@ -306,7 +323,7 @@ function Metric({ icon: Icon, label, tone, value }: { icon: typeof AlertTriangle
 }
 
 function TaskTable({ clients, openTask, tasks, team }: { clients: Client[]; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[] }) {
-  return <div className="overflow-x-auto"><table className="w-full min-w-[980px] border-collapse text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-semibold">Task</th><th className="px-4 py-3 font-semibold">Client</th><th className="px-4 py-3 font-semibold">Status</th><th className="px-4 py-3 font-semibold">Due</th><th className="px-4 py-3 font-semibold">Assignees</th><th className="px-4 py-3 font-semibold">Reviewer</th><th className="px-4 py-3 font-semibold">Priority</th><th className="px-4 py-3 font-semibold">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{tasks.map((task) => { const due = dueState(task); return <tr key={task.id} className="hover:bg-slate-50/70"><td className="px-4 py-3 font-medium text-slate-950">{task.title}</td><td className="px-4 py-3 text-slate-600">{clientName(clients, task.clientId)}</td><td className="px-4 py-3"><StatusPill status={task.status} /></td><td className="px-4 py-3"><span className={due.tone + " font-medium"}>{due.label}</span><div className="text-xs text-slate-500">{task.dueDate}</div></td><td className="px-4 py-3 text-slate-600">{task.assigneeIds.map((id) => userName(team, id)).join(", ")}</td><td className="px-4 py-3 text-slate-600">{userName(team, task.reviewerId)}</td><td className={priorityTone[task.priority] + " px-4 py-3 font-semibold"}>{task.priority}</td><td className="px-4 py-3"><button className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => openTask(task.id)} type="button">Open</button></td></tr>; })}</tbody></table></div>;
+  return <div className="overflow-x-auto"><table className="w-full min-w-[980px] border-collapse text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-semibold">Task</th><th className="px-4 py-3 font-semibold">Client</th><th className="px-4 py-3 font-semibold">Status</th><th className="px-4 py-3 font-semibold">Due</th><th className="px-4 py-3 font-semibold">Assignees</th><th className="px-4 py-3 font-semibold">Reviewer</th><th className="px-4 py-3 font-semibold">Priority</th><th className="px-4 py-3 font-semibold">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{tasks.length === 0 && <tr><td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={8}>No tasks match this view. Clear search or change the status filter.</td></tr>}{tasks.map((task) => { const due = dueState(task); return <tr key={task.id} className="hover:bg-slate-50/70"><td className="px-4 py-3 font-medium text-slate-950">{task.title}</td><td className="px-4 py-3 text-slate-600">{clientName(clients, task.clientId)}</td><td className="px-4 py-3"><StatusPill status={task.status} /></td><td className="px-4 py-3"><span className={due.tone + " font-medium"}>{due.label}</span><div className="text-xs text-slate-500">{task.dueDate}</div></td><td className="px-4 py-3 text-slate-600">{task.assigneeIds.map((id) => userName(team, id)).join(", ")}</td><td className="px-4 py-3 text-slate-600">{userName(team, task.reviewerId)}</td><td className={priorityTone[task.priority] + " px-4 py-3 font-semibold"}>{task.priority}</td><td className="px-4 py-3"><button className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => openTask(task.id)} type="button">View</button></td></tr>; })}</tbody></table></div>;
 }
 
 function Kanban({ clients, openTask, tasks, team }: { clients: Client[]; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[] }) {
@@ -368,7 +385,7 @@ function TaskDrawer({ addNote, clients, close, moveTask, task, team, user }: { a
 }
 
 function ModalFrame({ children, close, subtitle, title }: { children: React.ReactNode; close: () => void; subtitle: string; title: string }) {
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"><div className="w-full max-w-2xl rounded-lg bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div><h2 className="text-lg font-semibold text-slate-950">{title}</h2><p className="text-sm text-slate-500">{subtitle}</p></div><button className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" onClick={close} type="button"><X size={18} /></button></div><div className="p-5">{children}</div></div></div>;
+  return <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/40 p-4 sm:items-center"><div className="flex max-h-[calc(100vh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"><div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4"><div><h2 className="text-lg font-semibold text-slate-950">{title}</h2><p className="text-sm text-slate-500">{subtitle}</p></div><button aria-label="Close modal" className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" onClick={close} type="button"><X size={18} /></button></div><div className="overflow-y-auto p-5">{children}</div></div></div>;
 }
 
 function Field({ label, name, required, type = "text" }: { label: string; name: string; required?: boolean; type?: string }) {
@@ -380,7 +397,7 @@ function Select({ children, label, name, required }: { children: React.ReactNode
 }
 
 function Actions({ close, label }: { close: () => void; label: string }) {
-  return <div className="flex justify-end gap-2 border-t border-slate-200 pt-4"><button className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={close} type="button">Cancel</button><button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700" type="submit">{label}</button></div>;
+  return <div className="sticky bottom-0 -mx-5 -mb-5 mt-2 flex justify-end gap-2 border-t border-slate-200 bg-white px-5 py-4"><button className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={close} type="button">Cancel</button><button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700" type="submit">{label}</button></div>;
 }
 
 function Workflow({ action, disabled, label }: { action: () => void; disabled: boolean; label: string }) {
