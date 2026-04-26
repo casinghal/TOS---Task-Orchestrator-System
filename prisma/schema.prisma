@@ -1,0 +1,202 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model PlatformUser {
+  id              String         @id @default(cuid())
+  name            String
+  email           String         @unique
+  passwordHash    String
+  platformRole    String         @default("STANDARD")
+  isActive        Boolean        @default(true)
+  lastLoginAt     DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  firmMemberships FirmMember[]
+  createdTasks    Task[]         @relation("TaskCreator")
+  reviewTasks     Task[]         @relation("TaskReviewer")
+  closedTasks     Task[]         @relation("TaskCloser")
+  taskNotes       TaskNote[]
+  taskAssignments TaskAssignee[]
+  activityLogs    ActivityLog[]  @relation("ActivityActor")
+}
+
+model Firm {
+  id            String              @id @default(cuid())
+  name          String
+  email         String?
+  phone         String?
+  city          String?
+  state         String?
+  status        String              @default("TRIAL")
+  planId        String?
+  plan          Plan?               @relation(fields: [planId], references: [id])
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  members       FirmMember[]
+  clients       Client[]
+  tasks         Task[]
+  activityLogs  ActivityLog[]
+  subscription  FirmSubscription?
+  moduleAccess  FirmModuleAccess[]
+}
+
+model FirmMember {
+  id        String       @id @default(cuid())
+  firmId    String
+  userId    String
+  firmRole  String
+  isActive  Boolean      @default(true)
+  joinedAt  DateTime     @default(now())
+  firm      Firm         @relation(fields: [firmId], references: [id])
+  user      PlatformUser @relation(fields: [userId], references: [id])
+
+  @@unique([firmId, userId])
+  @@index([firmId])
+  @@index([userId])
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  firmId    String
+  name      String
+  pan       String?
+  gstin     String?
+  email     String?
+  mobile    String?
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  firm      Firm     @relation(fields: [firmId], references: [id])
+  tasks     Task[]
+
+  @@index([firmId])
+}
+
+model Task {
+  id             String         @id @default(cuid())
+  firmId         String
+  clientId       String
+  title          String
+  description    String?
+  status         String         @default("OPEN")
+  priority       String         @default("NORMAL")
+  dueDate        DateTime
+  reviewerId     String
+  createdById    String
+  closedById     String?
+  closureRemarks String?
+  closedAt       DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  firm           Firm           @relation(fields: [firmId], references: [id])
+  client         Client         @relation(fields: [clientId], references: [id])
+  reviewer       PlatformUser   @relation("TaskReviewer", fields: [reviewerId], references: [id])
+  createdBy      PlatformUser   @relation("TaskCreator", fields: [createdById], references: [id])
+  closedBy       PlatformUser?  @relation("TaskCloser", fields: [closedById], references: [id])
+  assignees      TaskAssignee[]
+  notes          TaskNote[]
+
+  @@index([firmId])
+  @@index([clientId])
+  @@index([reviewerId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+model TaskAssignee {
+  id         String       @id @default(cuid())
+  taskId     String
+  userId     String
+  assignedAt DateTime     @default(now())
+  task       Task         @relation(fields: [taskId], references: [id])
+  user       PlatformUser @relation(fields: [userId], references: [id])
+
+  @@unique([taskId, userId])
+  @@index([taskId])
+  @@index([userId])
+}
+
+model TaskNote {
+  id        String       @id @default(cuid())
+  taskId    String
+  authorId  String
+  note      String
+  oldStatus String?
+  newStatus String?
+  createdAt DateTime     @default(now())
+  task      Task         @relation(fields: [taskId], references: [id])
+  author    PlatformUser @relation(fields: [authorId], references: [id])
+
+  @@index([taskId])
+  @@index([authorId])
+}
+
+model ActivityLog {
+  id           String        @id @default(cuid())
+  firmId       String?
+  actorId      String?
+  entityType   String
+  entityId     String?
+  action       String
+  metadataJson String?
+  createdAt    DateTime      @default(now())
+  firm         Firm?         @relation(fields: [firmId], references: [id])
+  actor        PlatformUser? @relation("ActivityActor", fields: [actorId], references: [id])
+
+  @@index([firmId])
+  @@index([actorId])
+  @@index([entityType])
+  @@index([createdAt])
+}
+
+model Plan {
+  id              String             @id @default(cuid())
+  name            String             @unique
+  priceMonthly    Int                @default(0)
+  maxUsers        Int?
+  maxClients      Int?
+  maxStorageMb    Int?
+  isActive        Boolean            @default(true)
+  firms           Firm[]
+  subscriptions   FirmSubscription[]
+}
+
+model FirmSubscription {
+  id                     String    @id @default(cuid())
+  firmId                 String    @unique
+  planId                 String
+  status                 String    @default("TRIAL")
+  trialEndsAt            DateTime?
+  currentPeriodEndsAt    DateTime?
+  paymentProvider        String?
+  providerSubscriptionId String?
+  firm                   Firm      @relation(fields: [firmId], references: [id])
+  plan                   Plan      @relation(fields: [planId], references: [id])
+}
+
+model ModuleFlag {
+  id             String             @id @default(cuid())
+  key            String             @unique
+  name           String
+  description    String?
+  defaultEnabled Boolean            @default(false)
+  firmAccess     FirmModuleAccess[]
+}
+
+model FirmModuleAccess {
+  id           String     @id @default(cuid())
+  firmId       String
+  moduleFlagId String
+  isEnabled    Boolean    @default(false)
+  firm         Firm       @relation(fields: [firmId], references: [id])
+  moduleFlag   ModuleFlag @relation(fields: [moduleFlagId], references: [id])
+
+  @@unique([firmId, moduleFlagId])
+  @@index([firmId])
+}
