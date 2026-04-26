@@ -40,15 +40,22 @@ import {
   type Task,
   type TaskStatus,
   type TeamMember,
-} from "@/lib/demo-data";
+} from "@/lib/workspace-data";
 
 type Section = "tasks" | "clients" | "team" | "reports" | "admin";
 type ViewMode = "list" | "kanban";
 type Modal = "task" | "client" | "team" | null;
 
 const todayIso = "2026-04-26";
-const workspaceStorageKey = "tos-tams-tkg-live-v1";
+const workspaceStorageKey = "tos-tams-tkg-live-v2";
 const creatorRoles: FirmRole[] = ["Firm Admin", "Partner", "Manager"];
+const loginTips = [
+  "Create the client first, then create the task. This keeps every action traceable till closure.",
+  "Use Pending Client only when the next action is genuinely with the client.",
+  "Move completed work to Under Review instead of Closed. The reviewer closes after checking.",
+  "Add short progress notes whenever work is stuck. It reduces follow-up calls later.",
+  "Keep task titles action-oriented, for example: Prepare GSTR-1 working for April.",
+];
 
 const navItems = [
   { id: "tasks" as const, label: "My Tasks", icon: ClipboardList },
@@ -88,6 +95,7 @@ export default function Home() {
   const [activity, setActivity] = useState<ActivityEvent[]>(initialActivityEvents);
   const [modules, setModules] = useState<ModuleFlag[]>(initialModuleFlags);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [loginTip, setLoginTip] = useState(loginTips[0]);
 
   useEffect(() => {
     try {
@@ -184,7 +192,7 @@ export default function Home() {
     if (!name || !email) return;
     const nextMember: TeamMember = { id: "u_" + Date.now(), name, email, firmRole, role: firmRole, platformRole: "Standard", lastActive: "Invited", isActive: true };
     setTeamList((current) => [nextMember, ...current]);
-    log(user.id, "Created user", "User", name + " · " + firmRole);
+    log(user.id, "Created user", "User", name + " - " + firmRole);
     setModal(null);
   }
 
@@ -233,6 +241,7 @@ export default function Home() {
     setActiveSection("tasks");
     setSelectedTaskId(null);
     setModal(null);
+    setLoginTip(loginTips[Math.floor(Math.random() * loginTips.length)]);
   }
 
   function logout() {
@@ -251,6 +260,7 @@ export default function Home() {
         <section className="flex min-w-0 flex-1 flex-col">
           <Header active={activeSection} canCreateTask={canCreateTask} open={setModal} setActive={setActiveSection} user={user} logout={logout} />
           <div className="p-4 md:p-6">
+            <GuidanceNote title="Tip for effective usage" text={loginTip} />
             {activeSection === "tasks" && <TasksView stats={stats} tasks={visibleTasks} allTasks={taskList} clients={clientList} team={teamList} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} view={viewMode} setView={setViewMode} openTask={setSelectedTaskId} user={user} />}
             {activeSection === "clients" && <ClientsView clients={clientList} tasks={taskList} open={() => setModal("client")} />}
             {activeSection === "team" && <TeamView team={teamList} user={user} open={() => setModal("team")} />}
@@ -270,36 +280,48 @@ export default function Home() {
 function LoginScreen({ onLogin, team }: { onLogin: (id: string) => void; team: TeamMember[] }) {
   const [id, setId] = useState(team[0]?.id ?? "");
   const selected = team.find((member) => member.id === id);
-  return <main className="flex min-h-screen items-center justify-center p-4">
-    <section className="grid w-full max-w-5xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl md:grid-cols-[1.1fr_0.9fr]">
-      <div className="bg-blue-700 p-8 text-white md:p-10">
-        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/15"><ClipboardList size={24} /></div>
-        <h1 className="mt-8 max-w-lg text-3xl font-semibold leading-tight md:text-4xl">TAMS-TKG workspace for simple work tracking, disciplined review, and owner control.</h1>
-        <p className="mt-4 max-w-xl text-sm leading-6 text-blue-100">A focused task orchestration system for CA firm teams to assign work, track progress, review output, and close tasks with accountability.</p>
+  const dailyTip = loginTips[new Date().getDate() % loginTips.length];
+  return <main className="flex min-h-screen items-center justify-center bg-[#070a12] p-4 text-slate-100">
+    <section className="grid w-full max-w-6xl overflow-hidden rounded-xl border border-amber-200/15 bg-[#101623] shadow-2xl shadow-black/50 md:grid-cols-[1.08fr_0.92fr]">
+      <div className="relative overflow-hidden bg-[#0b1020] p-8 text-white md:p-12">
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-300/70 to-transparent" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-amber-200/25 bg-amber-200/10 text-amber-200"><ClipboardList size={24} /></div>
+        <p className="mt-8 text-xs font-semibold uppercase tracking-[0.28em] text-amber-200/80">TAMS-TKG workspace</p>
+        <h1 className="mt-3 max-w-xl text-3xl font-semibold leading-tight md:text-5xl">Disciplined task tracking for a modern CA firm.</h1>
+        <p className="mt-5 max-w-xl text-sm leading-6 text-slate-300">Create work, assign responsibility, move it through review, and close with a clear record. The workspace starts simple and grows only when the firm is ready.</p>
         <div className="mt-8 grid gap-3 sm:grid-cols-3"><Mini label="Work" value="Tasks" /><Mini label="Review" value="Closure" /><Mini label="Control" value="Admin" /></div>
+        <div className="mt-8 rounded-lg border border-amber-200/15 bg-white/5 p-4" title="A small practice tip is shown before each login to help the team build better work habits.">
+          <p className="text-xs font-semibold uppercase text-amber-200/80">Today&apos;s effectiveness tip</p>
+          <p className="mt-2 text-sm leading-6 text-slate-200">{dailyTip}</p>
+        </div>
       </div>
-      <div className="p-6 md:p-8">
-        <p className="text-xs font-semibold uppercase text-blue-700">Workspace access</p>
-        <h2 className="mt-2 text-2xl font-semibold text-slate-950">Select your profile</h2>
-        <p className="mt-2 text-sm text-slate-500">Enter the TAMS-TKG workspace with the access level assigned to your role.</p>
-        <label className="mt-6 block text-sm font-medium text-slate-700">User</label>
-        <select className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={id} onChange={(event) => setId(event.target.value)}>{team.map((member) => <option key={member.id} value={member.id}>{member.name} · {member.platformRole === "Platform Owner" ? "Platform Owner" : member.firmRole}</option>)}</select>
-        {selected && <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="font-semibold text-slate-950">{selected.name}</p><p className="mt-1 text-sm text-slate-600">{selected.email}</p></div>}
-        <button className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700" onClick={() => onLogin(id)} type="button">Enter TOS <ShieldCheck size={18} /></button>
+      <div className="bg-[#111827] p-6 md:p-10">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-200/80">Secure workspace access</p>
+        <h2 className="mt-3 text-2xl font-semibold text-white">Select your profile</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-400">Enter with the access level assigned to your role. Daily task features stay focused and uncluttered.</p>
+        <label className="mt-6 block text-sm font-medium text-slate-200" title="Choose the role profile to enter the workspace.">User profile</label>
+        <select className="mt-2 w-full rounded-lg border border-slate-600 bg-[#0b1020] px-3 py-3 text-sm text-white outline-none focus:border-amber-300 focus:ring-4 focus:ring-amber-200/10" value={id} onChange={(event) => setId(event.target.value)} title="Select your workspace profile">{team.map((member) => <option key={member.id} value={member.id}>{member.name} - {member.platformRole === "Platform Owner" ? "Platform Owner" : member.firmRole}</option>)}</select>
+        {selected && <div className="mt-4 rounded-lg border border-slate-700 bg-slate-950/35 p-4" title="This card confirms the role and access profile being used for this session."><p className="font-semibold text-white">{selected.name}</p><p className="mt-1 text-sm text-slate-400">{selected.email}</p><p className="mt-3 inline-flex rounded-full border border-amber-200/20 bg-amber-200/10 px-2.5 py-1 text-xs font-semibold text-amber-100">{selected.platformRole === "Platform Owner" ? "Platform Owner" : selected.firmRole}</p></div>}
+        <p className="mt-5 rounded-lg border border-slate-700 bg-slate-950/25 p-3 text-xs leading-5 text-slate-400">Guidance: Start by adding clients, then create tasks against those clients. Required fields are kept minimal so the team can begin quickly.</p>
+        <button className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-amber-300 px-4 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-950/20 hover:bg-amber-200" onClick={() => onLogin(id)} title="Enter the TAMS-TKG task workspace" type="button">Enter workspace <ShieldCheck size={18} /></button>
       </div>
     </section>
   </main>;
 }
 
 function Mini({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-lg border border-white/15 bg-white/10 p-3"><p className="text-xs text-blue-100">{label}</p><p className="mt-1 text-lg font-semibold">{value}</p></div>;
+  return <div className="rounded-lg border border-amber-200/15 bg-white/5 p-3" title={`${label}: ${value}`}><p className="text-xs text-slate-400">{label}</p><p className="mt-1 text-lg font-semibold text-white">{value}</p></div>;
+}
+
+function GuidanceNote({ text, title }: { text: string; title: string }) {
+  return <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900" title="A practical usage tip to help the team work more consistently."><span className="font-semibold">{title}: </span>{text}</div>;
 }
 
 function Sidebar({ active, setActive, user }: { active: Section; setActive: (section: Section) => void; user: TeamMember }) {
   return <aside className="hidden w-72 shrink-0 border-r border-slate-200 bg-white/90 px-4 py-5 shadow-sm backdrop-blur lg:block">
     <div className="mb-6 flex items-center gap-3 px-2"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white"><ClipboardList size={21} /></div><div><p className="text-sm font-semibold text-slate-950">TOS</p><p className="text-xs text-slate-500">Task Orchestration System</p></div></div>
     <nav className="space-y-1">{navItems.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950") + " flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition"} onClick={() => setActive(item.id)} type="button"><Icon size={18} />{item.label}</button>; })}</nav>
-    <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-semibold uppercase text-slate-500">Firm workspace</p><p className="mt-2 text-sm font-semibold text-slate-900">{firm.name}</p><p className="mt-1 text-xs text-slate-500">{firm.status} · {firm.plan}</p></div>
+    <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-semibold uppercase text-slate-500">Firm workspace</p><p className="mt-2 text-sm font-semibold text-slate-900">{firm.name}</p><p className="mt-1 text-xs text-slate-500">{firm.status} - {firm.plan}</p></div>
     <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3"><p className="text-xs font-semibold uppercase text-blue-700">Signed in</p><p className="mt-2 text-sm font-semibold text-blue-950">{user.name}</p><p className="mt-1 text-xs text-blue-700">{user.platformRole === "Platform Owner" ? "Platform Owner" : user.firmRole}</p></div>
   </aside>;
 }
@@ -323,7 +345,7 @@ function Metric({ icon: Icon, label, tone, value }: { icon: typeof AlertTriangle
 }
 
 function TaskTable({ clients, openTask, tasks, team }: { clients: Client[]; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[] }) {
-  return <div className="overflow-x-auto"><table className="w-full min-w-[980px] border-collapse text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-semibold">Task</th><th className="px-4 py-3 font-semibold">Client</th><th className="px-4 py-3 font-semibold">Status</th><th className="px-4 py-3 font-semibold">Due</th><th className="px-4 py-3 font-semibold">Assignees</th><th className="px-4 py-3 font-semibold">Reviewer</th><th className="px-4 py-3 font-semibold">Priority</th><th className="px-4 py-3 font-semibold">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{tasks.length === 0 && <tr><td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={8}>No tasks match this view. Clear search or change the status filter.</td></tr>}{tasks.map((task) => { const due = dueState(task); return <tr key={task.id} className="hover:bg-slate-50/70"><td className="px-4 py-3 font-medium text-slate-950">{task.title}</td><td className="px-4 py-3 text-slate-600">{clientName(clients, task.clientId)}</td><td className="px-4 py-3"><StatusPill status={task.status} /></td><td className="px-4 py-3"><span className={due.tone + " font-medium"}>{due.label}</span><div className="text-xs text-slate-500">{task.dueDate}</div></td><td className="px-4 py-3 text-slate-600">{task.assigneeIds.map((id) => userName(team, id)).join(", ")}</td><td className="px-4 py-3 text-slate-600">{userName(team, task.reviewerId)}</td><td className={priorityTone[task.priority] + " px-4 py-3 font-semibold"}>{task.priority}</td><td className="px-4 py-3"><button className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => openTask(task.id)} type="button">View</button></td></tr>; })}</tbody></table></div>;
+  return <div className="overflow-x-auto"><table className="w-full min-w-[980px] border-collapse text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-semibold" title="Task title entered by the creator.">Task</th><th className="px-4 py-3 font-semibold" title="Client linked to the task.">Client</th><th className="px-4 py-3 font-semibold" title="Current workflow stage.">Status</th><th className="px-4 py-3 font-semibold" title="Due date and urgency.">Due</th><th className="px-4 py-3 font-semibold" title="People responsible for doing the work.">Assignees</th><th className="px-4 py-3 font-semibold" title="Person responsible for review and closure.">Reviewer</th><th className="px-4 py-3 font-semibold" title="Priority selected by the creator.">Priority</th><th className="px-4 py-3 font-semibold" title="Open the task detail panel.">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{tasks.length === 0 && <tr><td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={8}>No tasks yet. Add a client first, then create the first task with only the required details.</td></tr>}{tasks.map((task) => { const due = dueState(task); return <tr key={task.id} className="hover:bg-slate-50/70" title="Open this task to update status, notes, and review closure."><td className="px-4 py-3 font-medium text-slate-950">{task.title}</td><td className="px-4 py-3 text-slate-600">{clientName(clients, task.clientId)}</td><td className="px-4 py-3"><StatusPill status={task.status} /></td><td className="px-4 py-3"><span className={due.tone + " font-medium"}>{due.label}</span><div className="text-xs text-slate-500">{task.dueDate}</div></td><td className="px-4 py-3 text-slate-600">{task.assigneeIds.map((id) => userName(team, id)).join(", ")}</td><td className="px-4 py-3 text-slate-600">{userName(team, task.reviewerId)}</td><td className={priorityTone[task.priority] + " px-4 py-3 font-semibold"}>{task.priority}</td><td className="px-4 py-3"><button className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => openTask(task.id)} title="View task details and workflow actions" type="button">View</button></td></tr>; })}</tbody></table></div>;
 }
 
 function Kanban({ clients, openTask, tasks, team }: { clients: Client[]; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[] }) {
@@ -331,7 +353,7 @@ function Kanban({ clients, openTask, tasks, team }: { clients: Client[]; openTas
 }
 
 function ClientsView({ clients, open, tasks }: { clients: Client[]; open: () => void; tasks: Task[] }) {
-  return <Panel title="Client master" subtitle="Client name is required. PAN, GSTIN, email, and mobile stay optional." action="Add Client" onAction={open}><div className="divide-y divide-slate-100">{clients.map((client) => <div key={client.id} className="grid gap-2 p-4 md:grid-cols-[1.2fr_0.8fr_0.8fr_1fr_0.7fr]"><div><p className="font-semibold text-slate-950">{client.name}</p><p className="text-xs text-slate-500">{tasks.filter((task) => task.clientId === client.id).length} linked tasks</p></div><p className="text-sm text-slate-600">PAN: {client.pan ?? "Optional"}</p><p className="text-sm text-slate-600">GSTIN: {client.gstin ?? "Optional"}</p><p className="text-sm text-slate-600">{client.email ?? client.mobile ?? "No contact added"}</p><span className="inline-flex w-fit rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{client.status}</span></div>)}</div></Panel>;
+  return <Panel title="Client master" subtitle="Client name is required. PAN, GSTIN, email, and mobile stay optional." action="Add Client" onAction={open}><div className="divide-y divide-slate-100">{clients.length === 0 && <div className="p-8 text-center text-sm text-slate-500">No clients added yet. Add the first client to unlock task creation against that client.</div>}{clients.map((client) => <div key={client.id} className="grid gap-2 p-4 md:grid-cols-[1.2fr_0.8fr_0.8fr_1fr_0.7fr]" title="Client record with optional statutory and contact details."><div><p className="font-semibold text-slate-950">{client.name}</p><p className="text-xs text-slate-500">{tasks.filter((task) => task.clientId === client.id).length} linked tasks</p></div><p className="text-sm text-slate-600">PAN: {client.pan ?? "Optional"}</p><p className="text-sm text-slate-600">GSTIN: {client.gstin ?? "Optional"}</p><p className="text-sm text-slate-600">{client.email ?? client.mobile ?? "No contact added"}</p><span className="inline-flex w-fit rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700" title="Client status">{client.status}</span></div>)}</div></Panel>;
 }
 
 function TeamView({ open, team, user }: { open: () => void; team: TeamMember[]; user: TeamMember }) {
@@ -342,7 +364,7 @@ function TeamView({ open, team, user }: { open: () => void; team: TeamMember[]; 
 function ReportsView({ clients, tasks, team }: { clients: Client[]; tasks: Task[]; team: TeamMember[] }) {
   const active = tasks.filter((task) => task.status !== "Closed");
   const overdue = active.filter((task) => task.dueDate < todayIso).length;
-  const busiest = [...team].sort((a, b) => tasks.filter((task) => task.assigneeIds.includes(b.id)).length - tasks.filter((task) => task.assigneeIds.includes(a.id)).length)[0];
+  const busiest = tasks.length === 0 ? null : [...team].sort((a, b) => tasks.filter((task) => task.assigneeIds.includes(b.id)).length - tasks.filter((task) => task.assigneeIds.includes(a.id)).length)[0];
   return <div className="space-y-4"><div className="grid gap-3 md:grid-cols-4"><ReportPanel title="Active tasks" value={String(active.length)} detail="Open through review" icon={ClipboardList} /><ReportPanel title="Overdue" value={String(overdue)} detail="Needs attention" icon={AlertTriangle} /><ReportPanel title="Review queue" value={String(tasks.filter((task) => task.status === "Under Review").length)} detail="Pending closure" icon={Eye} /><ReportPanel title="Top workload" value={busiest?.name ?? "None"} detail="Assignee load" icon={Users} /></div><div className="grid gap-4 xl:grid-cols-2"><div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-semibold text-slate-950">Status distribution</h2><div className="mt-4 grid gap-3 md:grid-cols-3">{statuses.map((status) => <div key={status} className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-medium text-slate-500">{status}</p><p className="mt-2 text-2xl font-semibold text-slate-950">{tasks.filter((task) => task.status === status).length}</p></div>)}</div></div><div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-semibold text-slate-950">Client-wise workload</h2><div className="mt-4 space-y-3">{clients.map((client) => <div key={client.id} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm"><span className="font-medium text-slate-700">{client.name}</span><span className="font-semibold text-slate-950">{tasks.filter((task) => task.clientId === client.id && task.status !== "Closed").length} active</span></div>)}</div></div></div></div>;
 }
 
@@ -352,19 +374,20 @@ function AdminView({ activity, clients, modules, tasks, team, toggleModule, user
 }
 
 function Panel({ action, children, onAction, subtitle, title }: { action: string; children: React.ReactNode; onAction: () => void; subtitle: string; title: string }) {
-  return <div className="rounded-lg border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b border-slate-200 p-4"><div><h2 className="font-semibold text-slate-950">{title}</h2><p className="text-sm text-slate-500">{subtitle}</p></div><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700" onClick={onAction} type="button">{action}</button></div>{children}</div>;
+  return <div className="rounded-lg border border-slate-200 bg-white shadow-sm" title={subtitle}><div className="flex items-center justify-between border-b border-slate-200 p-4"><div><h2 className="font-semibold text-slate-950">{title}</h2><p className="text-sm text-slate-500">{subtitle}</p></div><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700" onClick={onAction} title={action} type="button">{action}</button></div>{children}</div>;
 }
 
 function ReportPanel({ detail, icon: Icon, title, value }: { detail: string; icon: typeof ClipboardList; title: string; value: string }) {
-  return <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><Icon className="text-blue-600" size={20} /><p className="mt-4 text-sm font-medium text-slate-500">{title}</p><p className="mt-1 text-2xl font-semibold text-slate-950">{value}</p><p className="mt-1 text-sm text-slate-500">{detail}</p></div>;
+  return <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" title={`${title}: ${detail}`}><Icon className="text-blue-600" size={20} /><p className="mt-4 text-sm font-medium text-slate-500">{title}</p><p className="mt-1 text-2xl font-semibold text-slate-950">{value}</p><p className="mt-1 text-sm text-slate-500">{detail}</p></div>;
 }
 
 function OwnerTool({ icon: Icon, label, text }: { icon: typeof Eye; label: string; text: string }) {
-  return <div className="rounded-lg border border-slate-100 bg-slate-50 p-3"><Icon className="text-blue-600" size={18} /><p className="mt-3 text-sm font-semibold text-slate-950">{label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{text}</p></div>;
+  return <div className="rounded-lg border border-slate-100 bg-slate-50 p-3" title={text}><Icon className="text-blue-600" size={18} /><p className="mt-3 text-sm font-semibold text-slate-950">{label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{text}</p></div>;
 }
 
 function TaskModal({ clients, close, submit, team }: { clients: Client[]; close: () => void; submit: (event: FormEvent<HTMLFormElement>) => void; team: TeamMember[] }) {
-  return <ModalFrame title="Create task" subtitle="Required fields first. Optional details stay tucked away." close={close}><form className="space-y-4" onSubmit={submit}><Field label="Task title" name="title" required /><div className="grid gap-4 md:grid-cols-2"><Select label="Client" name="clientId" required><option value="">Select client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</Select><Field label="Due date" name="dueDate" required type="date" /></div><div className="grid gap-4 md:grid-cols-2"><label className="block"><span className="text-sm font-medium text-slate-700">Assignees</span><select className="mt-1 min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" name="assigneeIds" multiple required>{team.filter((member) => member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.id}>{member.name} · {member.firmRole}</option>)}</select><span className="mt-1 block text-xs text-slate-500">Hold Ctrl to select multiple people.</span></label><div className="space-y-4"><Select label="Reviewer" name="reviewerId" required><option value="">Select reviewer</option>{team.filter((member) => member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.id}>{member.name} · {member.firmRole}</option>)}</Select><Select label="Priority" name="priority"><option>Low</option><option>Normal</option><option>High</option><option>Urgent</option></Select></div></div><textarea className="min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" name="description" placeholder="More details, optional" /><Actions close={close} label="Create Task" /></form></ModalFrame>;
+  if (clients.length === 0) return <ModalFrame title="Create task" subtitle="Add one client before creating tasks." close={close}><div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900" title="Tasks must be linked to a client for clean tracking.">Guidance: First add the client in Client master. Then return here and create the task with only title, client, due date, assignee, and reviewer.</div><div className="mt-4 flex justify-end"><button className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={close} type="button">Close</button></div></ModalFrame>;
+  return <ModalFrame title="Create task" subtitle="Required fields first. Optional details stay tucked away." close={close}><form className="space-y-4" onSubmit={submit}><Field label="Task title" name="title" required /><div className="grid gap-4 md:grid-cols-2"><Select label="Client" name="clientId" required><option value="">Select client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</Select><Field label="Due date" name="dueDate" required type="date" /></div><div className="grid gap-4 md:grid-cols-2"><label className="block"><span className="text-sm font-medium text-slate-700">Assignees</span><select className="mt-1 min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" name="assigneeIds" multiple required>{team.filter((member) => member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.id}>{member.name} - {member.firmRole}</option>)}</select><span className="mt-1 block text-xs text-slate-500">Hold Ctrl to select multiple people.</span></label><div className="space-y-4"><Select label="Reviewer" name="reviewerId" required><option value="">Select reviewer</option>{team.filter((member) => member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.id}>{member.name} - {member.firmRole}</option>)}</Select><Select label="Priority" name="priority"><option>Low</option><option>Normal</option><option>High</option><option>Urgent</option></Select></div></div><textarea className="min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" name="description" placeholder="More details, optional" /><Actions close={close} label="Create Task" /></form></ModalFrame>;
 }
 
 function ClientModal({ close, submit }: { close: () => void; submit: (event: FormEvent<HTMLFormElement>) => void }) {
@@ -381,7 +404,7 @@ function TaskDrawer({ addNote, clients, close, moveTask, task, team, user }: { a
   const assignee = task.assigneeIds.includes(user.id);
   const reviewer = task.reviewerId === user.id || user.firmRole === "Firm Admin" || user.platformRole === "Platform Owner";
   const canUpdate = assignee || reviewer || task.createdById === user.id;
-  return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl"><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4"><div><button className="mb-2 text-sm font-semibold text-slate-600 hover:text-slate-950" onClick={close} type="button">Back</button><h2 className="text-xl font-semibold text-slate-950">{task.title}</h2><p className="mt-1 text-sm text-slate-500">{clientName(clients, task.clientId)}</p></div><StatusPill status={task.status} /></div><div className="space-y-5 p-5"><div className="grid gap-3 md:grid-cols-2"><Info label="Due date" value={task.dueDate + " · " + dueState(task).label} /><Info label="Priority" value={task.priority} /><Info label="Assignees" value={task.assigneeIds.map((id) => userName(team, id)).join(", ")} /><Info label="Reviewer" value={userName(team, task.reviewerId)} /></div>{task.description && <Info label="Description" value={task.description} />}<div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Workflow actions</h3><div className="mt-3 flex flex-wrap gap-2"><Workflow disabled={!canUpdate || task.status === "Closed"} label="Start / resume" action={() => moveTask(task.id, "In Progress")} /><Workflow disabled={!canUpdate || task.status === "Closed"} label="Pending client" action={() => moveTask(task.id, "Pending Client")} /><Workflow disabled={!canUpdate || task.status === "Closed"} label="Pending internal" action={() => moveTask(task.id, "Pending Internal")} /><Workflow disabled={!assignee || task.status === "Closed"} label="Move to review" action={() => moveTask(task.id, "Under Review")} /><Workflow disabled={!reviewer || task.status !== "Under Review"} label="Send back" action={() => moveTask(task.id, "In Progress")} /></div><div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3"><label className="block text-sm font-medium text-slate-700">Closure remarks</label><textarea className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Required before reviewer closes the task" /><button className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" disabled={!reviewer || task.status !== "Under Review" || !remarks.trim()} onClick={() => moveTask(task.id, "Closed", remarks.trim())} type="button">Close after review</button></div></div><div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Progress notes</h3><form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); addNote(task.id, note); setNote(""); }}><input className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" disabled={!canUpdate} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add progress note" /><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!canUpdate || !note.trim()} type="submit">Add</button></form><div className="mt-4 space-y-3">{task.notes.map((item) => <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm"><p className="text-slate-700">{item.text}</p><p className="mt-2 text-xs text-slate-500">{item.authorId ? userName(team, item.authorId) : item.author} · {item.createdAt}{item.newStatus ? " · " + (item.oldStatus ?? "Status") + " to " + item.newStatus : ""}</p></div>)}</div></div>{task.closureRemarks && <Info label="Closure remarks" value={task.closureRemarks} />}</div></aside></div>;
+  return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl"><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4"><div><button className="mb-2 text-sm font-semibold text-slate-600 hover:text-slate-950" onClick={close} type="button">Back</button><h2 className="text-xl font-semibold text-slate-950">{task.title}</h2><p className="mt-1 text-sm text-slate-500">{clientName(clients, task.clientId)}</p></div><StatusPill status={task.status} /></div><div className="space-y-5 p-5"><div className="grid gap-3 md:grid-cols-2"><Info label="Due date" value={task.dueDate + " - " + dueState(task).label} /><Info label="Priority" value={task.priority} /><Info label="Assignees" value={task.assigneeIds.map((id) => userName(team, id)).join(", ")} /><Info label="Reviewer" value={userName(team, task.reviewerId)} /></div>{task.description && <Info label="Description" value={task.description} />}<div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Workflow actions</h3><div className="mt-3 flex flex-wrap gap-2"><Workflow disabled={!canUpdate || task.status === "Closed"} label="Start / resume" action={() => moveTask(task.id, "In Progress")} /><Workflow disabled={!canUpdate || task.status === "Closed"} label="Pending client" action={() => moveTask(task.id, "Pending Client")} /><Workflow disabled={!canUpdate || task.status === "Closed"} label="Pending internal" action={() => moveTask(task.id, "Pending Internal")} /><Workflow disabled={!assignee || task.status === "Closed"} label="Move to review" action={() => moveTask(task.id, "Under Review")} /><Workflow disabled={!reviewer || task.status !== "Under Review"} label="Send back" action={() => moveTask(task.id, "In Progress")} /></div><div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3"><label className="block text-sm font-medium text-slate-700">Closure remarks</label><textarea className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Required before reviewer closes the task" /><button className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" disabled={!reviewer || task.status !== "Under Review" || !remarks.trim()} onClick={() => moveTask(task.id, "Closed", remarks.trim())} type="button">Close after review</button></div></div><div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Progress notes</h3><form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); addNote(task.id, note); setNote(""); }}><input className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" disabled={!canUpdate} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add progress note" /><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!canUpdate || !note.trim()} type="submit">Add</button></form><div className="mt-4 space-y-3">{task.notes.map((item) => <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm"><p className="text-slate-700">{item.text}</p><p className="mt-2 text-xs text-slate-500">{item.authorId ? userName(team, item.authorId) : item.author} - {item.createdAt}{item.newStatus ? " - " + (item.oldStatus ?? "Status") + " to " + item.newStatus : ""}</p></div>)}</div></div>{task.closureRemarks && <Info label="Closure remarks" value={task.closureRemarks} />}</div></aside></div>;
 }
 
 function ModalFrame({ children, close, subtitle, title }: { children: React.ReactNode; close: () => void; subtitle: string; title: string }) {
@@ -389,27 +412,27 @@ function ModalFrame({ children, close, subtitle, title }: { children: React.Reac
 }
 
 function Field({ label, name, required, type = "text" }: { label: string; name: string; required?: boolean; type?: string }) {
-  return <label className="block"><span className="text-sm font-medium text-slate-700">{label}</span><input className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" name={name} required={required} type={type} /></label>;
+  return <label className="block" title={required ? `${label} is required.` : `${label} is optional.`}><span className="text-sm font-medium text-slate-700">{label}{required ? " *" : ""}</span><input className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" name={name} placeholder={required ? "Required" : "Optional"} required={required} title={required ? `${label} is required.` : `${label} is optional.`} type={type} /></label>;
 }
 
 function Select({ children, label, name, required }: { children: React.ReactNode; label: string; name: string; required?: boolean }) {
-  return <label className="block"><span className="text-sm font-medium text-slate-700">{label}</span><select className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue="" name={name} required={required}>{children}</select></label>;
+  return <label className="block" title={required ? `${label} is required.` : `${label} is optional.`}><span className="text-sm font-medium text-slate-700">{label}{required ? " *" : ""}</span><select className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue="" name={name} required={required} title={required ? `${label} is required.` : `${label} is optional.`}>{children}</select></label>;
 }
 
 function Actions({ close, label }: { close: () => void; label: string }) {
-  return <div className="sticky bottom-0 -mx-5 -mb-5 mt-2 flex justify-end gap-2 border-t border-slate-200 bg-white px-5 py-4"><button className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={close} type="button">Cancel</button><button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700" type="submit">{label}</button></div>;
+  return <div className="sticky bottom-0 -mx-5 -mb-5 mt-2 flex justify-end gap-2 border-t border-slate-200 bg-white px-5 py-4"><button className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={close} title="Close without saving" type="button">Cancel</button><button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700" title={label} type="submit">{label}</button></div>;
 }
 
 function Workflow({ action, disabled, label }: { action: () => void; disabled: boolean; label: string }) {
-  return <button className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50" disabled={disabled} onClick={action} type="button">{label}</button>;
+  return <button className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50" disabled={disabled} onClick={action} title={disabled ? "This action is not available for your role or current task status." : `Move task: ${label}`} type="button">{label}</button>;
 }
 
 function StatusPill({ status }: { status: TaskStatus }) {
-  return <span className={statusTone[status] + " inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold"}>{status}</span>;
+  return <span className={statusTone[status] + " inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold"} title={`Current status: ${status}`}>{status}</span>;
 }
 
 function Info({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-semibold uppercase text-slate-500">{label}</p><p className="mt-1 text-sm font-medium text-slate-900">{value}</p></div>;
+  return <div className="rounded-lg border border-slate-200 bg-slate-50 p-3" title={`${label}: ${value}`}><p className="text-xs font-semibold uppercase text-slate-500">{label}</p><p className="mt-1 text-sm font-medium text-slate-900">{value}</p></div>;
 }
 
 function clientName(clients: Client[], id: string) {
