@@ -10,7 +10,7 @@
     "db:validate": "prisma validate",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
-    "uat:check": "npm run lint && npm run db:validate && npm run build"
+    "release:check": "npm run lint && npm run db:validate && npm run build"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

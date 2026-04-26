@@ -83,11 +83,11 @@ export type Plan = {
 };
 
 export const firm = {
-  id: "firm_avantage",
-  name: "Avantage & Co. Chartered Accountants",
-  status: "Trial",
+  id: "firm_tams_tkg",
+  name: "TAMS-TKG Chartered Accountants",
+  status: "Active",
   city: "Mumbai",
-  plan: "Professional Trial",
+  plan: "Professional",
 };
 
 export const initialTeamMembers: TeamMember[] = [
@@ -329,7 +329,7 @@ export const initialActivityEvents: ActivityEvent[] = [
     actorId: "u_owner",
     action: "Enabled module",
     entity: "ModuleFlag",
-    detail: "Reports and analytics enabled for demo firm",
+    detail: "Reports and analytics enabled for TAMS-TKG",
     createdAt: "Today, 8:00 AM",
   },
 ];
@@ -346,10 +346,9 @@ export const initialModuleFlags: ModuleFlag[] = [
 ];
 
 export const plans: Plan[] = [
-  { id: "p_trial", name: "Trial", price: "0", status: "Ready", limits: "5 users, 50 clients" },
-  { id: "p_starter", name: "Starter", price: "To be finalized", status: "Draft", limits: "10 users, 150 clients" },
-  { id: "p_professional", name: "Professional", price: "To be finalized", status: "Draft", limits: "30 users, 500 clients" },
-  { id: "p_enterprise", name: "Enterprise", price: "Custom", status: "Draft", limits: "Custom limits" },
+  { id: "p_starter", name: "Starter", price: "Configured", status: "Ready", limits: "10 users, 150 clients" },
+  { id: "p_professional", name: "Professional", price: "Active", status: "Ready", limits: "30 users, 500 clients" },
+  { id: "p_enterprise", name: "Enterprise", price: "Available", status: "Ready", limits: "Custom limits" },
 ];
 
 export const statuses: TaskStatus[] = [

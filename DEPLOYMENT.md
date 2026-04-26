@@ -1,24 +1,26 @@
-# TOS TAMS-TKG UAT Deployment
+# TOS TAMS-TKG Deployment
 
-## Current UAT Readiness
+## Current Release Readiness
 
-This build is ready for first UAT review on Netlify as a browser-persistent demo. It is not yet the final production persistence layer.
+This build is prepared for TAMS-TKG client-facing release review on Netlify with a simple task-management workspace.
 
-What works for UAT:
-- Role-based demo login.
+Live URL: `https://tos-tams-tkg.netlify.app`
+
+What works:
+- Role-based workspace access.
 - My Tasks dashboard.
 - List/Kanban view.
 - Task creation.
 - Multiple assignees and mandatory reviewer.
 - Progress notes.
 - Reviewer closure with closure remarks.
-- Clients, Team, Reports, Admin, module flags, plan readiness.
-- Browser-local persistence for UAT changes.
+- Clients, Team, Reports, Admin, module flags, plan controls, and activity monitor.
+- Browser workspace persistence for the current release environment.
 
-Next production layer:
+Next production hardening layer:
 - Connect Supabase Auth.
 - Apply `supabase/schema.sql`.
-- Replace browser-local state with Supabase-backed API calls.
+- Replace browser workspace state with Supabase-backed API calls.
 - Enable Netlify environment variables.
 
 ## Netlify Settings
@@ -30,7 +32,7 @@ If importing from GitHub, use:
 - Publish directory: `out`.
 - Node version: `20`.
 
-The included `netlify.toml` is configured for the app root. Phase 1 is exported as a static Next.js app for a simple, reliable UAT deployment.
+The included `netlify.toml` is configured for the app root. The current release is exported as a static Next.js app for a simple, reliable deployment.
 
 ## Supabase Environment Variables
 
@@ -41,6 +43,6 @@ Set these in Netlify once Supabase persistence is enabled:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `DATABASE_URL`
 
-## Safety
+## Data Safety
 
-Do not use real TAMS-TKG client confidential data until Supabase persistence, access control, and backups are enabled.
+For confidential firm-wide production data, connect Supabase persistence, access control, and backups before opening usage beyond the controlled release environment.
