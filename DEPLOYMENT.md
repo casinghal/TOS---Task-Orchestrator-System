@@ -27,10 +27,10 @@ If importing from GitHub, use:
 
 - Base directory: repository root if this app is the repo root; otherwise `02_App/tos-app`.
 - Build command: `npm run build`.
-- Publish directory: `.next`.
+- Publish directory: `out`.
 - Node version: `20`.
 
-The included `netlify.toml` is configured for the app root.
+The included `netlify.toml` is configured for the app root. Phase 1 is exported as a static Next.js app for a simple, reliable UAT deployment.
 
 ## Supabase Environment Variables
 
