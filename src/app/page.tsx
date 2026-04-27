@@ -57,6 +57,7 @@ type Modal = "task" | "client" | "team" | null;
 
 const todayIso = "2026-04-26";
 const workspaceStorageKey = "tos-tams-tkg-live-v2";
+const legacyStorageKeys = ["tos-tams-tkg-live-v1"];
 const creatorRoles: FirmRole[] = ["Firm Admin", "Partner", "Manager"];
 const loginTips = [
   "Create the client first, then create the task. This keeps every action traceable till closure.",
@@ -108,6 +109,7 @@ export default function Home() {
 
   useEffect(() => {
     try {
+      legacyStorageKeys.forEach((key) => window.localStorage.removeItem(key));
       const raw = window.localStorage.getItem(workspaceStorageKey);
       if (raw) {
         const saved = JSON.parse(raw) as { tasks?: Task[]; clients?: Client[]; team?: TeamMember[]; activity?: ActivityEvent[]; modules?: ModuleFlag[] };
