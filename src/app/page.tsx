@@ -52,7 +52,7 @@ import {
   type TeamMember,
 } from "@/lib/workspace-data";
 
-type Section = "tasks" | "assignments" | "clients" | "team" | "reports" | "admin";
+type Section = "tasks" | "assignments" | "projectReview" | "clients" | "team" | "reports" | "admin";
 type ViewMode = "list" | "kanban";
 type Modal = "task" | "assignment" | "client" | "team" | null;
 type MemberActions = {
@@ -83,6 +83,7 @@ const loginTips = [
 const navItems = [
   { id: "tasks" as const, label: "My Tasks", icon: ClipboardList },
   { id: "assignments" as const, label: "Assignments", icon: LayoutGrid },
+  { id: "projectReview" as const, label: "Project Review", icon: Gauge },
   { id: "clients" as const, label: "Clients", icon: Building2 },
   { id: "team" as const, label: "Team", icon: Users },
   { id: "reports" as const, label: "Reports", icon: BarChart3 },
@@ -401,6 +402,7 @@ export default function Home() {
             <GuidanceNote title="Tip for effective usage" text={loginTip} />
             {activeSection === "tasks" && <TasksView assignments={assignmentList} stats={stats} tasks={visibleTasks} allTasks={taskList} clients={clientList} team={teamList} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} view={viewMode} setView={setViewMode} openTask={setSelectedTaskId} user={user} />}
             {activeSection === "assignments" && <AssignmentsView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openClient={() => setModal("client")} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
+            {activeSection === "projectReview" && <ProjectReviewView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
             {activeSection === "clients" && <ClientsView assignments={assignmentList} clients={clientList} tasks={taskList} open={() => setModal("client")} />}
             {activeSection === "team" && <TeamView actions={memberActions} team={teamList} user={user} open={() => setModal("team")} />}
             {activeSection === "reports" && <ReportsView tasks={taskList} clients={clientList} team={teamList} />}
@@ -494,11 +496,11 @@ function Sidebar({ active, setActive, user }: { active: Section; setActive: (sec
 
 function Header({ active, canCreateTask, logout, open, setActive, user }: { active: Section; canCreateTask: boolean; logout: () => void; open: (modal: Modal) => void; setActive: (section: Section) => void; user: TeamMember }) {
   const title = navItems.find((item) => item.id === active)?.label ?? "TOS";
-  const nextModal: Modal = active === "clients" ? "client" : active === "team" ? "team" : active === "assignments" ? "assignment" : "task";
+  const nextModal: Modal = active === "clients" ? "client" : active === "team" ? "team" : active === "assignments" || active === "projectReview" ? "assignment" : "task";
   const canManageTeam = user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin";
-  const canUsePrimaryAction = active === "team" ? canManageTeam : active === "clients" || active === "assignments" ? canCreateTask : canCreateTask;
+  const canUsePrimaryAction = active === "team" ? canManageTeam : active === "clients" || active === "assignments" || active === "projectReview" ? canCreateTask : canCreateTask;
   const disabledReason = active === "team" ? "Only Platform Owner and Firm Admin can add users" : "Only Firm Admin, Partner, and Manager can create this record";
-  const actionLabel = active === "clients" ? "Add Client" : active === "team" ? "Add User" : active === "assignments" ? "Add Assignment" : "Create Task";
+  const actionLabel = active === "clients" ? "Add Client" : active === "team" ? "Add User" : active === "assignments" || active === "projectReview" ? "Add Assignment" : "Create Task";
   return <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/86 px-4 py-3 backdrop-blur md:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-blue-700">TAMS-TKG workspace</p><h1 className="text-xl font-semibold text-slate-950 md:text-2xl">{title}</h1></div><div className="flex flex-wrap items-center gap-2"><span className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:inline-flex">{user.name}</span><button aria-label="Notifications prepared for reminder layer" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400" disabled title="Notifications will activate with email reminders" type="button"><Bell size={18} /></button><button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" disabled={!canUsePrimaryAction} onClick={() => open(nextModal)} title={!canUsePrimaryAction ? disabledReason : undefined} type="button"><Plus size={18} />{actionLabel}</button><button aria-label="Log out" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={logout} type="button"><LogOut size={18} /></button></div></div><nav className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden" aria-label="Mobile workspace navigation">{navItems.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600") + " inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"} onClick={() => setActive(item.id)} type="button"><Icon size={16} />{item.label}</button>; })}</nav></header>;
 }
 
@@ -589,6 +591,111 @@ function AssignmentTreeItem({ actions, assignment, canCoordinate, openTask, task
       </div>)}</div>
     </div>
   </details>;
+}
+
+function ProjectReviewView({ actions, assignments, clients, openAssignment, openTask, tasks, team, user }: { actions: WorkMapActions; assignments: Assignment[]; clients: Client[]; openAssignment: () => void; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[]; user: TeamMember }) {
+  const [clientFilter, setClientFilter] = useState("All");
+  const [personFilter, setPersonFilter] = useState("All");
+  const [riskFilter, setRiskFilter] = useState("All");
+  const [sortMode, setSortMode] = useState("Risk first");
+  const [search, setSearch] = useState("");
+  const canCoordinate = creatorRoles.includes(user.firmRole) || user.platformRole === "Platform Owner";
+  const firmWide = user.platformRole === "Platform Owner" || user.firmRole !== "Article/Staff";
+  const visibleTasks = tasks.filter((task) => firmWide || task.assigneeIds.includes(user.id) || task.reviewerId === user.id);
+  const myTasks = tasks.filter((task) => task.assigneeIds.includes(user.id) || task.reviewerId === user.id);
+  const scopedAssignments = assignments.filter((assignment) => {
+    const linkedTasks = visibleTasks.filter((task) => task.assignmentId === assignment.id);
+    const text = [assignment.name, assignment.period, clientName(clients, assignment.clientId), userName(team, assignment.ownerId), userName(team, assignment.reviewerId)].join(" ").toLowerCase();
+    const matchesClient = clientFilter === "All" || assignment.clientId === clientFilter;
+    const matchesPerson = personFilter === "All" || assignment.ownerId === personFilter || assignment.reviewerId === personFilter || linkedTasks.some((task) => task.assigneeIds.includes(personFilter) || task.reviewerId === personFilter);
+    const matchesRisk = riskFilter === "All" || assignmentRisk(assignment, linkedTasks) === riskFilter;
+    const matchesSearch = !search.trim() || text.includes(search.toLowerCase()) || linkedTasks.some((task) => task.title.toLowerCase().includes(search.toLowerCase()));
+    return matchesClient && matchesPerson && matchesRisk && matchesSearch && (firmWide || linkedTasks.length > 0 || assignment.ownerId === user.id || assignment.reviewerId === user.id);
+  }).sort((a, b) => sortAssignments(a, b, tasks, sortMode));
+  const reviewTasks = scopedAssignments.flatMap((assignment) => visibleTasks.filter((task) => task.assignmentId === assignment.id));
+  const closed = reviewTasks.filter((task) => task.status === "Closed").length;
+  const overdue = reviewTasks.filter((task) => task.status !== "Closed" && task.dueDate < todayIso).length;
+  const reviewQueue = reviewTasks.filter((task) => task.status === "Under Review").length;
+
+  return <div className="space-y-5">
+    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div><p className="text-xs font-semibold uppercase text-blue-700">Partner review cockpit</p><h2 className="mt-1 text-xl font-semibold text-slate-950">Project accountability by client and assignment</h2><p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">Review every project stream from the partner lens: objective, manager, reviewer, task sequence, assignee contribution, completion, and risk.</p></div>
+        <button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700" disabled={!canCoordinate} onClick={openAssignment} title="Create a new project assignment stream" type="button">Add Assignment</button>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-4"><ReportPanel title="Assignments" value={String(scopedAssignments.length)} detail="Visible project streams" icon={LayoutGrid} /><ReportPanel title="Open tasks" value={String(reviewTasks.length - closed)} detail="Still pending" icon={ClipboardList} /><ReportPanel title="Review queue" value={String(reviewQueue)} detail="Awaiting reviewer" icon={Eye} /><ReportPanel title="Overdue" value={String(overdue)} detail="Accountability focus" icon={AlertTriangle} /></div>
+    </section>
+
+    <section className="grid gap-4 xl:grid-cols-[1fr_0.8fr]">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h3 className="font-semibold text-slate-950">Review filters</h3>
+        <div className="mt-3 grid gap-3 md:grid-cols-5">
+          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 md:col-span-2"><Search size={16} className="text-slate-400" /><input className="min-w-0 flex-1 bg-transparent text-sm outline-none" onChange={(event) => setSearch(event.target.value)} placeholder="Search client, assignment, task, person" value={search} /></div>
+          <select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" onChange={(event) => setClientFilter(event.target.value)} value={clientFilter}><option value="All">All clients</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select>
+          <select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" onChange={(event) => setPersonFilter(event.target.value)} value={personFilter}><option value="All">All people</option>{team.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select>
+          <select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" onChange={(event) => setRiskFilter(event.target.value)} value={riskFilter}><option>All</option><option>At risk</option><option>Needs review</option><option>On track</option></select>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm"><span className="text-slate-500">Sort:</span>{["Risk first", "Due first", "Progress low", "Client A-Z"].map((mode) => <button key={mode} className={(sortMode === mode ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600") + " rounded-lg border px-3 py-1.5 text-xs font-semibold"} onClick={() => setSortMode(mode)} type="button">{mode}</button>)}</div>
+      </div>
+      <ContributionPanel tasks={myTasks} team={team} user={user} />
+    </section>
+
+    <div className="space-y-4">
+      {scopedAssignments.length === 0 && <div className="rounded-lg border border-dashed border-blue-200 bg-blue-50 p-8 text-center text-sm text-blue-900">No matching project streams yet. Add a client, create an assignment, then add tasks under it to build the full project map.</div>}
+      {scopedAssignments.map((assignment) => <ProjectReviewCard key={assignment.id} actions={actions} assignment={assignment} canCoordinate={canCoordinate} client={clients.find((client) => client.id === assignment.clientId)} openTask={openTask} tasks={visibleTasks.filter((task) => task.assignmentId === assignment.id).sort((a, b) => taskSequence(a) - taskSequence(b))} team={team} />)}
+    </div>
+  </div>;
+}
+
+function ContributionPanel({ tasks, team, user }: { tasks: Task[]; team: TeamMember[]; user: TeamMember }) {
+  const underReview = tasks.filter((task) => task.status === "Under Review").length;
+  const overdue = tasks.filter((task) => task.status !== "Closed" && task.dueDate < todayIso).length;
+  return <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <h3 className="font-semibold text-slate-950">My contribution map</h3>
+    <p className="mt-1 text-sm leading-6 text-slate-500">Shows how your assigned or review work fits into project delivery.</p>
+    <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-lg bg-slate-50 p-3"><p className="text-lg font-semibold text-slate-950">{tasks.length}</p><p className="text-slate-500">Mapped</p></div><div className="rounded-lg bg-violet-50 p-3"><p className="text-lg font-semibold text-violet-700">{underReview}</p><p className="text-violet-600">Review</p></div><div className="rounded-lg bg-red-50 p-3"><p className="text-lg font-semibold text-red-700">{overdue}</p><p className="text-red-600">Overdue</p></div></div>
+    <div className="mt-4 space-y-2">{tasks.slice(0, 4).map((task) => <div key={task.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs" title="Contribution item"><p className="font-semibold text-slate-950">{task.title}</p><p className="mt-1 text-slate-500">{task.assigneeIds.includes(user.id) ? "Assignee" : "Reviewer"} - {task.status} - {userName(team, task.reviewerId)}</p></div>)}{tasks.length === 0 && <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">No mapped work for your profile yet.</p>}</div>
+  </div>;
+}
+
+function ProjectReviewCard({ actions, assignment, canCoordinate, client, openTask, tasks, team }: { actions: WorkMapActions; assignment: Assignment; canCoordinate: boolean; client?: Client; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[] }) {
+  const closed = tasks.filter((task) => task.status === "Closed").length;
+  const progress = tasks.length ? Math.round((closed / tasks.length) * 100) : 0;
+  const risk = assignmentRisk(assignment, tasks);
+  return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div className="border-b border-slate-100 bg-slate-50 p-4">
+      <div className="grid gap-3 xl:grid-cols-[1.35fr_0.7fr_0.7fr_0.55fr] xl:items-center">
+        <div><p className="text-xs font-semibold uppercase text-blue-700">{client?.name ?? "Client not found"}</p><h3 className="mt-1 text-lg font-semibold text-slate-950">{assignment.name}</h3><p className="mt-1 text-xs text-slate-500">{assignment.period ?? "No period"}{assignment.dueDate ? " - Target " + assignment.dueDate : ""}</p></div>
+        <Info label="Manager" value={userName(team, assignment.ownerId)} />
+        <Info label="Reviewer" value={userName(team, assignment.reviewerId)} />
+        <span className={riskTone(risk) + " inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold"}>{risk}</span>
+      </div>
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-white"><div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-700" style={{ width: `${progress}%` }} /></div>
+      <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500"><span>{progress}% complete</span><span>{tasks.length - closed} pending</span><span>{tasks.filter((task) => task.status === "Under Review").length} under review</span></div>
+    </div>
+    <div className="space-y-4 p-4">
+      {statuses.map((status) => {
+        const stageTasks = tasks.filter((task) => task.status === status);
+        if (stageTasks.length === 0) return null;
+        return <div key={status} className="rounded-lg border border-slate-100">
+          <div className="flex items-center justify-between bg-slate-50 px-3 py-2"><StatusPill status={status} /><span className="text-xs font-semibold text-slate-500">{stageTasks.length} task{stageTasks.length === 1 ? "" : "s"}</span></div>
+          <div className="space-y-2 p-3">{stageTasks.map((task, index) => <ProjectTaskRow key={task.id} actions={actions} canCoordinate={canCoordinate} index={index} openTask={openTask} task={task} taskCount={stageTasks.length} team={team} />)}</div>
+        </div>;
+      })}
+      {tasks.length === 0 && <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-5 text-center text-sm text-slate-500">No task breakdown yet. Add tasks under this assignment to make accountability visible.</div>}
+    </div>
+  </section>;
+}
+
+function ProjectTaskRow({ actions, canCoordinate, index, openTask, task, taskCount, team }: { actions: WorkMapActions; canCoordinate: boolean; index: number; openTask: (id: string) => void; task: Task; taskCount: number; team: TeamMember[] }) {
+  const risk = taskRisk(task);
+  return <div className="grid gap-2 rounded-lg border border-slate-100 bg-white p-3 text-sm md:grid-cols-[1.2fr_0.8fr_0.8fr_0.7fr_0.55fr] md:items-center" title="Project task accountability row">
+    <button className="text-left font-semibold text-slate-950 hover:text-blue-700" onClick={() => openTask(task.id)} type="button">{task.title}<span className="mt-1 block text-xs font-normal text-slate-500">{task.priority} priority</span></button>
+    <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate} onChange={(event) => actions.reassignTask(task.id, event.target.value)} title="Reassign assignee" value={task.assigneeIds[0] ?? ""}>{team.filter((member) => member.isActive && member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select>
+    <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate} onChange={(event) => actions.updateReviewer(task.id, event.target.value)} title="Change reviewer" value={task.reviewerId}>{team.filter((member) => member.isActive && member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select>
+    <div><p className={dueState(task).tone + " text-xs font-semibold"}>{dueState(task).label}</p><p className="text-xs text-slate-500">{task.dueDate}</p></div>
+    <div className="flex flex-wrap items-center gap-1"><span className={riskTone(risk) + " rounded-full px-2 py-1 text-xs font-semibold"}>{risk}</span><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || index === 0} onClick={() => actions.resequenceTask(task.id, "up")} title="Move earlier in sequence" type="button">Up</button><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || index === taskCount - 1} onClick={() => actions.resequenceTask(task.id, "down")} title="Move later in sequence" type="button">Down</button></div>
+  </div>;
 }
 
 function ClientsView({ assignments, clients, open, tasks }: { assignments: Assignment[]; clients: Client[]; open: () => void; tasks: Task[] }) {
@@ -914,6 +1021,44 @@ function clientName(clients: Client[], id: string) {
 function assignmentName(assignments: Assignment[], id?: string) {
   if (!id) return "Unmapped task";
   return assignments.find((assignment) => assignment.id === id)?.name ?? "Unmapped task";
+}
+
+function assignmentRisk(assignment: Assignment, tasks: Task[]) {
+  if (tasks.some((task) => task.status !== "Closed" && task.dueDate < todayIso) || (assignment.dueDate && assignment.dueDate < todayIso && tasks.some((task) => task.status !== "Closed"))) return "At risk";
+  if (tasks.some((task) => task.status === "Under Review")) return "Needs review";
+  return "On track";
+}
+
+function taskRisk(task: Task) {
+  if (task.status !== "Closed" && task.dueDate < todayIso) return "At risk";
+  if (task.status === "Under Review") return "Needs review";
+  return "On track";
+}
+
+function riskTone(risk: string) {
+  if (risk === "At risk") return "bg-red-50 text-red-700";
+  if (risk === "Needs review") return "bg-violet-50 text-violet-700";
+  return "bg-emerald-50 text-emerald-700";
+}
+
+function sortAssignments(a: Assignment, b: Assignment, tasks: Task[], sortMode: string) {
+  const aTasks = tasks.filter((task) => task.assignmentId === a.id);
+  const bTasks = tasks.filter((task) => task.assignmentId === b.id);
+  if (sortMode === "Client A-Z") return a.clientId.localeCompare(b.clientId) || a.name.localeCompare(b.name);
+  if (sortMode === "Due first") return (a.dueDate ?? "9999-12-31").localeCompare(b.dueDate ?? "9999-12-31");
+  if (sortMode === "Progress low") return assignmentProgress(aTasks) - assignmentProgress(bTasks);
+  return riskRank(assignmentRisk(b, bTasks)) - riskRank(assignmentRisk(a, aTasks));
+}
+
+function assignmentProgress(tasks: Task[]) {
+  if (tasks.length === 0) return 0;
+  return Math.round((tasks.filter((task) => task.status === "Closed").length / tasks.length) * 100);
+}
+
+function riskRank(risk: string) {
+  if (risk === "At risk") return 3;
+  if (risk === "Needs review") return 2;
+  return 1;
 }
 
 function userName(team: TeamMember[], id: string) {
