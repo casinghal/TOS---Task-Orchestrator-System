@@ -54,12 +54,18 @@ import {
 type Section = "tasks" | "clients" | "team" | "reports" | "admin";
 type ViewMode = "list" | "kanban";
 type Modal = "task" | "client" | "team" | null;
+type MemberActions = {
+  resetPassword: (memberId: string) => void;
+  setActive: (memberId: string, isActive: boolean) => void;
+  updateRole: (memberId: string, firmRole: FirmRole) => void;
+};
 
 const todayIso = "2026-04-26";
 const workspaceStorageKey = "tos-tams-tkg-live-v3";
 const legacyStorageKeys = ["tos-tams-tkg-live-v1", "tos-tams-tkg-live-v2"];
 const tamsEmailDomain = "@tams.co.in";
 const creatorRoles: FirmRole[] = ["Firm Admin", "Partner", "Manager"];
+const firmRoles: FirmRole[] = ["Firm Admin", "Partner", "Manager", "Article/Staff"];
 const loginTips = [
   "Create the client first, then create the task. This keeps every action traceable till closure.",
   "Use Pending Client only when the next action is genuinely with the client.",
@@ -208,6 +214,39 @@ export default function Home() {
     setModal(null);
   }
 
+  function canManageMember(target: TeamMember) {
+    return Boolean(user && canManageUser(user, target));
+  }
+
+  function setMemberActive(memberId: string, isActive: boolean) {
+    if (!user) return;
+    const target = teamList.find((member) => member.id === memberId);
+    if (!target || !canManageMember(target)) return;
+    setTeamList((current) => current.map((member) => member.id === memberId ? {
+      ...member,
+      isActive,
+      passwordDigest: isActive ? member.passwordDigest : undefined,
+      lastActive: isActive ? "Reactivated" : "Access removed",
+    } : member));
+    log(user.id, isActive ? "Reactivated user" : "Deactivated user", "User", target.name);
+  }
+
+  function resetMemberPassword(memberId: string) {
+    if (!user) return;
+    const target = teamList.find((member) => member.id === memberId);
+    if (!target || !canManageMember(target)) return;
+    setTeamList((current) => current.map((member) => member.id === memberId ? { ...member, passwordDigest: undefined, lastActive: "Password reset" } : member));
+    log(user.id, "Reset user password", "User", target.name);
+  }
+
+  function updateMemberRole(memberId: string, firmRole: FirmRole) {
+    if (!user) return;
+    const target = teamList.find((member) => member.id === memberId);
+    if (!target || !canManageMember(target)) return;
+    setTeamList((current) => current.map((member) => member.id === memberId ? { ...member, firmRole, role: firmRole } : member));
+    log(user.id, "Changed user role", "User", `${target.name} - ${firmRole}`);
+  }
+
   function addNote(taskId: string, text: string) {
     if (!user || !text.trim()) return;
     setTaskList((current) => current.map((task) => task.id === taskId ? {
@@ -276,6 +315,8 @@ export default function Home() {
 
   if (!user) return <LoginScreen onLogin={login} />;
 
+  const memberActions: MemberActions = { resetPassword: resetMemberPassword, setActive: setMemberActive, updateRole: updateMemberRole };
+
   return (
     <main className="min-h-screen overflow-x-hidden text-slate-900">
       <div className="flex min-h-screen">
@@ -286,9 +327,9 @@ export default function Home() {
             <GuidanceNote title="Tip for effective usage" text={loginTip} />
             {activeSection === "tasks" && <TasksView stats={stats} tasks={visibleTasks} allTasks={taskList} clients={clientList} team={teamList} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} view={viewMode} setView={setViewMode} openTask={setSelectedTaskId} user={user} />}
             {activeSection === "clients" && <ClientsView clients={clientList} tasks={taskList} open={() => setModal("client")} />}
-            {activeSection === "team" && <TeamView team={teamList} user={user} open={() => setModal("team")} />}
+            {activeSection === "team" && <TeamView actions={memberActions} team={teamList} user={user} open={() => setModal("team")} />}
             {activeSection === "reports" && <ReportsView tasks={taskList} clients={clientList} team={teamList} />}
-            {activeSection === "admin" && <AdminView user={user} tasks={taskList} clients={clientList} team={teamList} activity={activity} modules={modules} toggleModule={toggleModule} openTeam={() => setModal("team")} />}
+            {activeSection === "admin" && <AdminView actions={memberActions} user={user} tasks={taskList} clients={clientList} team={teamList} activity={activity} modules={modules} toggleModule={toggleModule} openTeam={() => setModal("team")} />}
           </div>
         </section>
       </div>
@@ -405,9 +446,37 @@ function ClientsView({ clients, open, tasks }: { clients: Client[]; open: () => 
   return <Panel title="Client master" subtitle="Client name is required. PAN, GSTIN, email, and mobile stay optional." action="Add Client" onAction={open}><div className="divide-y divide-slate-100">{clients.length === 0 && <div className="p-8 text-center text-sm text-slate-500">No clients added yet. Add the first client to unlock task creation against that client.</div>}{clients.map((client) => <div key={client.id} className="grid gap-2 p-4 md:grid-cols-[1.2fr_0.8fr_0.8fr_1fr_0.7fr]" title="Client record with optional statutory and contact details."><div><p className="font-semibold text-slate-950">{client.name}</p><p className="text-xs text-slate-500">{tasks.filter((task) => task.clientId === client.id).length} linked tasks</p></div><p className="text-sm text-slate-600">PAN: {client.pan ?? "Optional"}</p><p className="text-sm text-slate-600">GSTIN: {client.gstin ?? "Optional"}</p><p className="text-sm text-slate-600">{client.email ?? client.mobile ?? "No contact added"}</p><span className="inline-flex w-fit rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700" title="Client status">{client.status}</span></div>)}</div></Panel>;
 }
 
-function TeamView({ open, team, user }: { open: () => void; team: TeamMember[]; user: TeamMember }) {
+function TeamView({ actions, open, team, user }: { actions: MemberActions; open: () => void; team: TeamMember[]; user: TeamMember }) {
   const canManage = user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin";
-  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><div><h2 className="font-semibold text-slate-950">Team and roles</h2><p className="text-sm text-slate-500">Firm Admin, Partner, Manager, and Article/Staff are active for Phase 1.</p></div><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50" disabled={!canManage} onClick={open} type="button">Add User</button></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{team.map((member) => <div key={member.id} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-slate-950">{member.name}</p><p className="mt-1 text-sm text-slate-500">{member.email}</p></div><UserCog className="text-blue-600" size={19} /></div><div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-sm"><span className="font-medium text-slate-700">{member.platformRole === "Platform Owner" ? "Platform Owner" : member.firmRole}</span><span className="text-slate-500">{member.lastActive}</span></div></div>)}</div></div>;
+  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><div><h2 className="font-semibold text-slate-950">Team and access</h2><p className="text-sm text-slate-500">Add TAMS users, control roles, reset passwords, and deactivate access when someone leaves.</p></div><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50" disabled={!canManage} onClick={open} title="Create an active TAMS user. The user creates a password on first sign-in." type="button">Add User</button></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{team.map((member) => <UserAccessCard key={member.id} actions={actions} currentUser={user} member={member} />)}</div></div>;
+}
+
+function UserAccessCard({ actions, currentUser, member }: { actions: MemberActions; currentUser: TeamMember; member: TeamMember }) {
+  const manageable = canManageUser(currentUser, member);
+  const roleLabel = member.platformRole === "Platform Owner" ? "Platform Owner" : member.firmRole;
+  return <div className={(member.isActive ? "border-slate-200 bg-white" : "border-slate-200 bg-slate-50") + " rounded-lg border p-4 shadow-sm"} title="User access record">
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="truncate font-semibold text-slate-950">{member.name}</p>
+        <p className="mt-1 truncate text-sm text-slate-500">{member.email}</p>
+      </div>
+      <span className={(member.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-200 text-slate-600") + " shrink-0 rounded-full px-2 py-1 text-xs font-semibold"}>{member.isActive ? "Active" : "Inactive"}</span>
+    </div>
+    <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
+      <label className="block" title={manageable ? "Change the user's firm role." : "This user cannot be edited from your current access level."}>
+        <span className="text-xs font-semibold uppercase text-slate-500">Role</span>
+        <select className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" disabled={!manageable || member.platformRole === "Platform Owner"} onChange={(event) => actions.updateRole(member.id, event.target.value as FirmRole)} value={member.firmRole}>
+          {firmRoles.map((role) => <option key={role} value={role}>{role}</option>)}
+        </select>
+      </label>
+      <div className="pt-5 text-right text-xs text-slate-500"><UserCog className="ml-auto text-blue-600" size={18} />{roleLabel}</div>
+    </div>
+    <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+      <button className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45" disabled={!manageable || !member.isActive} onClick={() => actions.resetPassword(member.id)} title="Clears the saved password. The user creates a fresh password on next sign-in." type="button"><KeyRound size={14} className="inline" /> Reset password</button>
+      <button className={(member.isActive ? "border-red-200 text-red-700 hover:bg-red-50" : "border-emerald-200 text-emerald-700 hover:bg-emerald-50") + " rounded-lg border px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45"} disabled={!manageable} onClick={() => actions.setActive(member.id, !member.isActive)} title={member.isActive ? "Stop this user from signing in while keeping history intact." : "Allow this user to sign in again."} type="button">{member.isActive ? "Deactivate" : "Reactivate"}</button>
+    </div>
+    <p className="mt-3 text-xs leading-5 text-slate-500">Last status: {member.lastActive}</p>
+  </div>;
 }
 
 function ReportsView({ clients, tasks, team }: { clients: Client[]; tasks: Task[]; team: TeamMember[] }) {
@@ -417,7 +486,7 @@ function ReportsView({ clients, tasks, team }: { clients: Client[]; tasks: Task[
   return <div className="space-y-4"><div className="grid gap-3 md:grid-cols-4"><ReportPanel title="Active tasks" value={String(active.length)} detail="Open through review" icon={ClipboardList} /><ReportPanel title="Overdue" value={String(overdue)} detail="Needs attention" icon={AlertTriangle} /><ReportPanel title="Review queue" value={String(tasks.filter((task) => task.status === "Under Review").length)} detail="Pending closure" icon={Eye} /><ReportPanel title="Top workload" value={busiest?.name ?? "None"} detail="Assignee load" icon={Users} /></div><div className="grid gap-4 xl:grid-cols-2"><div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-semibold text-slate-950">Status distribution</h2><div className="mt-4 grid gap-3 md:grid-cols-3">{statuses.map((status) => <div key={status} className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-medium text-slate-500">{status}</p><p className="mt-2 text-2xl font-semibold text-slate-950">{tasks.filter((task) => task.status === status).length}</p></div>)}</div></div><div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-semibold text-slate-950">Client-wise workload</h2><div className="mt-4 space-y-3">{clients.map((client) => <div key={client.id} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm"><span className="font-medium text-slate-700">{client.name}</span><span className="font-semibold text-slate-950">{tasks.filter((task) => task.clientId === client.id && task.status !== "Closed").length} active</span></div>)}</div></div></div></div>;
 }
 
-function AdminView({ activity, clients, modules, openTeam, tasks, team, toggleModule, user }: { activity: ActivityEvent[]; clients: Client[]; modules: ModuleFlag[]; openTeam: () => void; tasks: Task[]; team: TeamMember[]; toggleModule: (id: string) => void; user: TeamMember }) {
+function AdminView({ actions, activity, clients, modules, openTeam, tasks, team, toggleModule, user }: { actions: MemberActions; activity: ActivityEvent[]; clients: Client[]; modules: ModuleFlag[]; openTeam: () => void; tasks: Task[]; team: TeamMember[]; toggleModule: (id: string) => void; user: TeamMember }) {
   const owner = user.platformRole === "Platform Owner";
   const activeTasks = tasks.filter((task) => task.status !== "Closed");
   const overdueTasks = activeTasks.filter((task) => task.dueDate < todayIso);
@@ -483,11 +552,14 @@ function AdminView({ activity, clients, modules, openTeam, tasks, team, toggleMo
         </div>
       </AdminPanel>
 
-      <AdminPanel title="User Administration" subtitle="Role visibility, access readiness, and quick owner actions." icon={UserCog}>
+      <AdminPanel title="User Administration" subtitle="Create users, control access, reset passwords, and strike off inactive profiles." icon={UserCog}>
         <div className="flex flex-wrap gap-2">
-          <button className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45" disabled={!owner && user.firmRole !== "Firm Admin"} onClick={openTeam} title="Add a new team member" type="button"><UserPlus size={16} /> Add user</button>
+          <button className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45" disabled={!owner && user.firmRole !== "Firm Admin"} onClick={openTeam} title="Add a TAMS email ID as an active workspace user" type="button"><UserPlus size={16} /> Add user</button>
           <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700" disabled title="View-as mode is prepared for the next admin layer." type="button"><Eye size={16} /> View-as</button>
           <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700" disabled title="Exports are planned for firm owner reporting." type="button"><FileDown size={16} /> Export</button>
+        </div>
+        <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-900" title="Current access model">
+          Add the TAMS email ID here first. The user sets their own password on first sign-in. Deactivate access when a person leaves; historical task records stay intact.
         </div>
         <div className="mt-5 space-y-3">
           {roleRows.map((row) => <div key={row.role} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2" title={`${row.role}: ${row.users} user${row.users === 1 ? "" : "s"}`}>
@@ -495,11 +567,8 @@ function AdminView({ activity, clients, modules, openTeam, tasks, team, toggleMo
             <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">{row.users}</span>
           </div>)}
         </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          {team.map((member) => <div key={member.id} className="rounded-lg border border-slate-100 bg-white p-3" title="Team access and status">
-            <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-slate-950">{member.name}</p><p className="mt-1 text-xs text-slate-500">{member.email}</p></div><span className={(member.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600") + " rounded-full px-2 py-1 text-xs font-semibold"}>{member.isActive ? "Active" : "Inactive"}</span></div>
-            <p className="mt-3 text-xs font-medium text-slate-500">{member.platformRole === "Platform Owner" ? "Platform Owner" : member.firmRole} - {member.lastActive}</p>
-          </div>)}
+        <div className="mt-5 grid gap-3">
+          {team.map((member) => <UserAccessCard key={member.id} actions={actions} currentUser={user} member={member} />)}
         </div>
       </AdminPanel>
     </section>
@@ -633,8 +702,9 @@ function OwnerTool({ icon: Icon, label, text }: { icon: typeof Eye; label: strin
 }
 
 function TaskModal({ clients, close, submit, team }: { clients: Client[]; close: () => void; submit: (event: FormEvent<HTMLFormElement>) => void; team: TeamMember[] }) {
+  const activeTeam = team.filter((member) => member.isActive);
   if (clients.length === 0) return <ModalFrame title="Create task" subtitle="Add one client before creating tasks." close={close}><div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900" title="Tasks must be linked to a client for clean tracking.">Guidance: First add the client in Client master. Then return here and create the task with only title, client, due date, assignee, and reviewer.</div><div className="mt-4 flex justify-end"><button className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={close} type="button">Close</button></div></ModalFrame>;
-  return <ModalFrame title="Create task" subtitle="Required fields first. Optional details stay tucked away." close={close}><form className="space-y-4" onSubmit={submit}><Field label="Task title" name="title" required /><div className="grid gap-4 md:grid-cols-2"><Select label="Client" name="clientId" required><option value="">Select client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</Select><Field label="Due date" name="dueDate" required type="date" /></div><div className="grid gap-4 md:grid-cols-2"><label className="block"><span className="text-sm font-medium text-slate-700">Assignees</span><select className="mt-1 min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" name="assigneeIds" multiple required>{team.filter((member) => member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.id}>{member.name} - {member.firmRole}</option>)}</select><span className="mt-1 block text-xs text-slate-500">Hold Ctrl to select multiple people.</span></label><div className="space-y-4"><Select label="Reviewer" name="reviewerId" required><option value="">Select reviewer</option>{team.filter((member) => member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.id}>{member.name} - {member.firmRole}</option>)}</Select><Select label="Priority" name="priority"><option>Low</option><option>Normal</option><option>High</option><option>Urgent</option></Select></div></div><textarea className="min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" name="description" placeholder="More details, optional" /><Actions close={close} label="Create Task" /></form></ModalFrame>;
+  return <ModalFrame title="Create task" subtitle="Required fields first. Optional details stay tucked away." close={close}><form className="space-y-4" onSubmit={submit}><Field label="Task title" name="title" required /><div className="grid gap-4 md:grid-cols-2"><Select label="Client" name="clientId" required><option value="">Select client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</Select><Field label="Due date" name="dueDate" required type="date" /></div><div className="grid gap-4 md:grid-cols-2"><label className="block"><span className="text-sm font-medium text-slate-700">Assignees</span><select className="mt-1 min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" name="assigneeIds" multiple required>{activeTeam.filter((member) => member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.id}>{member.name} - {member.firmRole}</option>)}</select><span className="mt-1 block text-xs text-slate-500">Hold Ctrl to select multiple active users.</span></label><div className="space-y-4"><Select label="Reviewer" name="reviewerId" required><option value="">Select reviewer</option>{activeTeam.filter((member) => member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.id}>{member.name} - {member.firmRole}</option>)}</Select><Select label="Priority" name="priority"><option>Low</option><option>Normal</option><option>High</option><option>Urgent</option></Select></div></div><textarea className="min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" name="description" placeholder="More details, optional" /><Actions close={close} label="Create Task" /></form></ModalFrame>;
 }
 
 function ClientModal({ close, submit }: { close: () => void; submit: (event: FormEvent<HTMLFormElement>) => void }) {
@@ -708,6 +778,12 @@ function textOrUndefined(form: FormData, key: string) {
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
+}
+
+function canManageUser(currentUser: TeamMember, target: TeamMember) {
+  if (target.id === currentUser.id) return false;
+  if (currentUser.platformRole === "Platform Owner") return true;
+  return currentUser.firmRole === "Firm Admin" && target.platformRole !== "Platform Owner";
 }
 
 function isTamsEmail(email: string) {
