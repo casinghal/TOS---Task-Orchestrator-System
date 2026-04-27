@@ -326,7 +326,13 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
     <section className="grid w-full max-w-6xl overflow-hidden rounded-xl border border-amber-200/15 bg-[#101623] shadow-2xl shadow-black/50 md:grid-cols-[1.08fr_0.92fr]">
       <div className="relative overflow-hidden bg-[#0b1020] p-8 text-white md:p-12">
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-300/70 to-transparent" />
-        <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-amber-200/25 bg-amber-200/10 text-amber-200"><ClipboardList size={24} /></div>
+        <div className="flex flex-col gap-3 rounded-xl border border-amber-200/20 bg-white/5 p-3 shadow-lg shadow-black/20 sm:flex-row sm:items-center" title="Task Orchestration System">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-amber-300 font-serif text-xl font-bold text-slate-950 shadow-md shadow-amber-950/20">TOS</div>
+          <div className="min-w-0">
+            <p className="font-serif text-2xl font-semibold leading-tight text-amber-100 md:text-4xl">Task Orchestration System</p>
+            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Clarity. Control. Closure. Confidence.</p>
+          </div>
+        </div>
         <p className="mt-8 text-xs font-semibold uppercase tracking-[0.28em] text-amber-200/80">TAMS-TKG workspace</p>
         <h1 className="mt-3 max-w-xl text-3xl font-semibold leading-tight md:text-5xl">Disciplined task tracking for a modern CA firm.</h1>
         <p className="mt-5 max-w-xl text-sm leading-6 text-slate-300">Create work, assign responsibility, move it through review, and close with a clear record. The workspace starts simple and grows only when the firm is ready.</p>
