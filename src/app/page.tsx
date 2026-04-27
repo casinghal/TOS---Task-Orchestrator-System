@@ -24,7 +24,6 @@ import {
   Settings,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   TrendingUp,
   UserCog,
   UserPlus,
@@ -34,6 +33,7 @@ import {
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
+  assignments as seedAssignments,
   clients as seedClients,
   firm,
   initialActivityEvents,
@@ -43,6 +43,7 @@ import {
   tasks as seedTasks,
   teamMembers as seedTeam,
   type ActivityEvent,
+  type Assignment,
   type Client,
   type FirmRole,
   type ModuleFlag,
@@ -51,16 +52,21 @@ import {
   type TeamMember,
 } from "@/lib/workspace-data";
 
-type Section = "tasks" | "clients" | "team" | "reports" | "admin";
+type Section = "tasks" | "assignments" | "clients" | "team" | "reports" | "admin";
 type ViewMode = "list" | "kanban";
-type Modal = "task" | "client" | "team" | null;
+type Modal = "task" | "assignment" | "client" | "team" | null;
 type MemberActions = {
   resetPassword: (memberId: string) => void;
   setActive: (memberId: string, isActive: boolean) => void;
   updateRole: (memberId: string, firmRole: FirmRole) => void;
 };
+type WorkMapActions = {
+  reassignTask: (taskId: string, assigneeId: string) => void;
+  resequenceTask: (taskId: string, direction: "up" | "down") => void;
+  updateReviewer: (taskId: string, reviewerId: string) => void;
+};
 
-const todayIso = "2026-04-26";
+const todayIso = "2026-04-27";
 const workspaceStorageKey = "tos-tams-tkg-live-v3";
 const legacyStorageKeys = ["tos-tams-tkg-live-v1", "tos-tams-tkg-live-v2"];
 const tamsEmailDomain = "@tams.co.in";
@@ -76,6 +82,7 @@ const loginTips = [
 
 const navItems = [
   { id: "tasks" as const, label: "My Tasks", icon: ClipboardList },
+  { id: "assignments" as const, label: "Assignments", icon: LayoutGrid },
   { id: "clients" as const, label: "Clients", icon: Building2 },
   { id: "team" as const, label: "Team", icon: Users },
   { id: "reports" as const, label: "Reports", icon: BarChart3 },
@@ -106,6 +113,7 @@ export default function Home() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | TaskStatus>("All");
+  const [assignmentList, setAssignmentList] = useState<Assignment[]>(seedAssignments);
   const [taskList, setTaskList] = useState<Task[]>(seedTasks);
   const [clientList, setClientList] = useState<Client[]>(seedClients);
   const [teamList, setTeamList] = useState<TeamMember[]>(seedTeam);
@@ -119,7 +127,8 @@ export default function Home() {
       legacyStorageKeys.forEach((key) => window.localStorage.removeItem(key));
       const raw = window.localStorage.getItem(workspaceStorageKey);
       if (raw) {
-        const saved = JSON.parse(raw) as { tasks?: Task[]; clients?: Client[]; team?: TeamMember[]; activity?: ActivityEvent[]; modules?: ModuleFlag[] };
+        const saved = JSON.parse(raw) as { assignments?: Assignment[]; tasks?: Task[]; clients?: Client[]; team?: TeamMember[]; activity?: ActivityEvent[]; modules?: ModuleFlag[] };
+        if (saved.assignments) setAssignmentList(saved.assignments);
         if (saved.tasks) setTaskList(saved.tasks);
         if (saved.clients) setClientList(saved.clients);
         if (saved.team) setTeamList(saved.team);
@@ -133,8 +142,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!isHydrated) return;
-    window.localStorage.setItem(workspaceStorageKey, JSON.stringify({ tasks: taskList, clients: clientList, team: teamList, activity, modules }));
-  }, [activity, clientList, isHydrated, modules, taskList, teamList]);
+    window.localStorage.setItem(workspaceStorageKey, JSON.stringify({ assignments: assignmentList, tasks: taskList, clients: clientList, team: teamList, activity, modules }));
+  }, [activity, assignmentList, clientList, isHydrated, modules, taskList, teamList]);
 
   const user = teamList.find((member) => member.id === sessionUserId) ?? null;
   const selectedTask = taskList.find((task) => task.id === selectedTaskId) ?? null;
@@ -146,10 +155,10 @@ export default function Home() {
     return taskList.filter((task) => {
       const roleCanSeeFirm = isPlatformOwner || user.firmRole !== "Article/Staff";
       const staffCanSee = task.assigneeIds.includes(user.id) || task.reviewerId === user.id;
-      const text = [task.title, clientName(clientList, task.clientId), task.status].join(" ").toLowerCase();
+      const text = [task.title, clientName(clientList, task.clientId), assignmentName(assignmentList, task.assignmentId), task.status].join(" ").toLowerCase();
       return (roleCanSeeFirm || staffCanSee) && text.includes(query.toLowerCase()) && (statusFilter === "All" || task.status === statusFilter);
     });
-  }, [clientList, isPlatformOwner, query, statusFilter, taskList, user]);
+  }, [assignmentList, clientList, isPlatformOwner, query, statusFilter, taskList, user]);
 
   const stats = useMemo(() => ({
     overdue: visibleTasks.filter((task) => task.status !== "Closed" && task.dueDate < todayIso).length,
@@ -168,6 +177,7 @@ export default function Home() {
     const form = new FormData(event.currentTarget);
     const title = String(form.get("title") || "").trim();
     const clientId = String(form.get("clientId") || "");
+    const assignmentId = textOrUndefined(form, "assignmentId");
     const dueDate = String(form.get("dueDate") || "");
     const assigneeIds = form.getAll("assigneeIds").map(String);
     const reviewerId = String(form.get("reviewerId") || "");
@@ -176,7 +186,7 @@ export default function Home() {
     if (!title || !clientId || !dueDate || !reviewerId || assigneeIds.length === 0) return;
     const nextTask: Task = {
       id: "t_" + Date.now(), title, clientId, dueDate, status: "Open", priority,
-      assigneeIds, reviewerId, createdById: user.id, updatedAt: "Just now", description,
+      assignmentId, assigneeIds, reviewerId, createdById: user.id, updatedAt: "Just now", sequence: Date.now(), description,
       notes: [{ id: "n_" + Date.now(), authorId: user.id, text: "Task created.", createdAt: "Just now" }],
     };
     setTaskList((current) => [nextTask, ...current]);
@@ -212,6 +222,31 @@ export default function Home() {
     setTeamList((current) => [nextMember, ...current]);
     log(user.id, "Created user", "User", name + " - " + firmRole);
     setModal(null);
+  }
+
+  function createAssignment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!user || !canCreateTask) return;
+    const form = new FormData(event.currentTarget);
+    const name = String(form.get("name") || "").trim();
+    const clientId = String(form.get("clientId") || "");
+    const ownerId = String(form.get("ownerId") || "");
+    const reviewerId = String(form.get("reviewerId") || "");
+    if (!name || !clientId || !ownerId || !reviewerId) return;
+    const nextAssignment: Assignment = {
+      id: "as_" + Date.now(),
+      clientId,
+      name,
+      ownerId,
+      reviewerId,
+      period: textOrUndefined(form, "period"),
+      dueDate: textOrUndefined(form, "dueDate"),
+      status: "Active",
+    };
+    setAssignmentList((current) => [nextAssignment, ...current]);
+    log(user.id, "Created assignment", "Assignment", `${clientName(clientList, clientId)} - ${name}`);
+    setModal(null);
+    setActiveSection("assignments");
   }
 
   function canManageMember(target: TeamMember) {
@@ -276,6 +311,44 @@ export default function Home() {
     log(user.id, "Moved task to " + nextStatus, "Task", before.title);
   }
 
+  function reassignTask(taskId: string, assigneeId: string) {
+    if (!user || !canCreateTask || !assigneeId) return;
+    const target = taskList.find((task) => task.id === taskId);
+    const assignee = teamList.find((member) => member.id === assigneeId && member.isActive);
+    if (!target || !assignee) return;
+    setTaskList((current) => current.map((task) => task.id === taskId ? { ...task, assigneeIds: [assigneeId], updatedAt: "Just now" } : task));
+    log(user.id, "Reassigned task", "Task", `${target.title} to ${assignee.name}`);
+  }
+
+  function updateReviewer(taskId: string, reviewerId: string) {
+    if (!user || !canCreateTask || !reviewerId) return;
+    const target = taskList.find((task) => task.id === taskId);
+    const reviewer = teamList.find((member) => member.id === reviewerId && member.isActive);
+    if (!target || !reviewer) return;
+    setTaskList((current) => current.map((task) => task.id === taskId ? { ...task, reviewerId, updatedAt: "Just now" } : task));
+    log(user.id, "Changed task reviewer", "Task", `${target.title} to ${reviewer.name}`);
+  }
+
+  function resequenceTask(taskId: string, direction: "up" | "down") {
+    if (!user || !canCreateTask) return;
+    const target = taskList.find((task) => task.id === taskId);
+    if (!target) return;
+    const ordered = taskList
+      .filter((task) => task.clientId === target.clientId && (task.assignmentId ?? "") === (target.assignmentId ?? ""))
+      .sort((a, b) => taskSequence(a) - taskSequence(b));
+    const index = ordered.findIndex((task) => task.id === taskId);
+    const swapIndex = direction === "up" ? index - 1 : index + 1;
+    if (index < 0 || swapIndex < 0 || swapIndex >= ordered.length) return;
+    const first = ordered[index];
+    const second = ordered[swapIndex];
+    setTaskList((current) => current.map((task) => {
+      if (task.id === first.id) return { ...task, sequence: taskSequence(second), updatedAt: "Just now" };
+      if (task.id === second.id) return { ...task, sequence: taskSequence(first), updatedAt: "Just now" };
+      return task;
+    }));
+    log(user.id, "Resequenced task", "Task", target.title);
+  }
+
   function toggleModule(moduleId: string) {
     if (!user || !isPlatformOwner) return;
     const item = modules.find((module) => module.id === moduleId);
@@ -316,6 +389,7 @@ export default function Home() {
   if (!user) return <LoginScreen onLogin={login} />;
 
   const memberActions: MemberActions = { resetPassword: resetMemberPassword, setActive: setMemberActive, updateRole: updateMemberRole };
+  const workMapActions: WorkMapActions = { reassignTask, resequenceTask, updateReviewer };
 
   return (
     <main className="min-h-screen overflow-x-hidden text-slate-900">
@@ -325,18 +399,20 @@ export default function Home() {
           <Header active={activeSection} canCreateTask={canCreateTask} open={setModal} setActive={setActiveSection} user={user} logout={logout} />
           <div className="p-4 md:p-6">
             <GuidanceNote title="Tip for effective usage" text={loginTip} />
-            {activeSection === "tasks" && <TasksView stats={stats} tasks={visibleTasks} allTasks={taskList} clients={clientList} team={teamList} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} view={viewMode} setView={setViewMode} openTask={setSelectedTaskId} user={user} />}
-            {activeSection === "clients" && <ClientsView clients={clientList} tasks={taskList} open={() => setModal("client")} />}
+            {activeSection === "tasks" && <TasksView assignments={assignmentList} stats={stats} tasks={visibleTasks} allTasks={taskList} clients={clientList} team={teamList} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} view={viewMode} setView={setViewMode} openTask={setSelectedTaskId} user={user} />}
+            {activeSection === "assignments" && <AssignmentsView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openClient={() => setModal("client")} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
+            {activeSection === "clients" && <ClientsView assignments={assignmentList} clients={clientList} tasks={taskList} open={() => setModal("client")} />}
             {activeSection === "team" && <TeamView actions={memberActions} team={teamList} user={user} open={() => setModal("team")} />}
             {activeSection === "reports" && <ReportsView tasks={taskList} clients={clientList} team={teamList} />}
             {activeSection === "admin" && <AdminView actions={memberActions} user={user} tasks={taskList} clients={clientList} team={teamList} activity={activity} modules={modules} toggleModule={toggleModule} openTeam={() => setModal("team")} />}
           </div>
         </section>
       </div>
-      {modal === "task" && <TaskModal clients={clientList} team={teamList} close={() => setModal(null)} submit={createTask} />}
+      {modal === "task" && <TaskModal assignments={assignmentList} clients={clientList} team={teamList} close={() => setModal(null)} submit={createTask} />}
+      {modal === "assignment" && <AssignmentModal clients={clientList} close={() => setModal(null)} submit={createAssignment} team={teamList} />}
       {modal === "client" && <ClientModal close={() => setModal(null)} submit={createClient} />}
       {modal === "team" && <TeamModal close={() => setModal(null)} submit={createMember} />}
-      {selectedTask && <TaskDrawer task={selectedTask} team={teamList} clients={clientList} user={user} close={() => setSelectedTaskId(null)} addNote={addNote} moveTask={moveTask} />}
+      {selectedTask && <TaskDrawer assignments={assignmentList} task={selectedTask} team={teamList} clients={clientList} user={user} close={() => setSelectedTaskId(null)} addNote={addNote} moveTask={moveTask} />}
     </main>
   );
 }
@@ -418,15 +494,16 @@ function Sidebar({ active, setActive, user }: { active: Section; setActive: (sec
 
 function Header({ active, canCreateTask, logout, open, setActive, user }: { active: Section; canCreateTask: boolean; logout: () => void; open: (modal: Modal) => void; setActive: (section: Section) => void; user: TeamMember }) {
   const title = navItems.find((item) => item.id === active)?.label ?? "TOS";
-  const nextModal: Modal = active === "clients" ? "client" : active === "team" ? "team" : "task";
+  const nextModal: Modal = active === "clients" ? "client" : active === "team" ? "team" : active === "assignments" ? "assignment" : "task";
   const canManageTeam = user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin";
-  const canUsePrimaryAction = active === "team" ? canManageTeam : active === "clients" ? canCreateTask : canCreateTask;
+  const canUsePrimaryAction = active === "team" ? canManageTeam : active === "clients" || active === "assignments" ? canCreateTask : canCreateTask;
   const disabledReason = active === "team" ? "Only Platform Owner and Firm Admin can add users" : "Only Firm Admin, Partner, and Manager can create this record";
-  return <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/86 px-4 py-3 backdrop-blur md:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-blue-700">TAMS-TKG workspace</p><h1 className="text-xl font-semibold text-slate-950 md:text-2xl">{title}</h1></div><div className="flex flex-wrap items-center gap-2"><span className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:inline-flex">{user.name}</span><button aria-label="Notifications prepared for reminder layer" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400" disabled title="Notifications will activate with email reminders" type="button"><Bell size={18} /></button><button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" disabled={!canUsePrimaryAction} onClick={() => open(nextModal)} title={!canUsePrimaryAction ? disabledReason : undefined} type="button"><Plus size={18} />{active === "clients" ? "Add Client" : active === "team" ? "Add User" : "Create Task"}</button><button aria-label="Log out" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={logout} type="button"><LogOut size={18} /></button></div></div><nav className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden" aria-label="Mobile workspace navigation">{navItems.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600") + " inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"} onClick={() => setActive(item.id)} type="button"><Icon size={16} />{item.label}</button>; })}</nav></header>;
+  const actionLabel = active === "clients" ? "Add Client" : active === "team" ? "Add User" : active === "assignments" ? "Add Assignment" : "Create Task";
+  return <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/86 px-4 py-3 backdrop-blur md:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-blue-700">TAMS-TKG workspace</p><h1 className="text-xl font-semibold text-slate-950 md:text-2xl">{title}</h1></div><div className="flex flex-wrap items-center gap-2"><span className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:inline-flex">{user.name}</span><button aria-label="Notifications prepared for reminder layer" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400" disabled title="Notifications will activate with email reminders" type="button"><Bell size={18} /></button><button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" disabled={!canUsePrimaryAction} onClick={() => open(nextModal)} title={!canUsePrimaryAction ? disabledReason : undefined} type="button"><Plus size={18} />{actionLabel}</button><button aria-label="Log out" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={logout} type="button"><LogOut size={18} /></button></div></div><nav className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden" aria-label="Mobile workspace navigation">{navItems.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600") + " inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"} onClick={() => setActive(item.id)} type="button"><Icon size={16} />{item.label}</button>; })}</nav></header>;
 }
 
-function TasksView({ allTasks, clients, openTask, query, setQuery, setStatusFilter, setView, stats, statusFilter, tasks, team, user, view }: { allTasks: Task[]; clients: Client[]; openTask: (id: string) => void; query: string; setQuery: (value: string) => void; setStatusFilter: (value: "All" | TaskStatus) => void; setView: (value: ViewMode) => void; stats: { overdue: number; dueToday: number; underReview: number; closed: number }; statusFilter: "All" | TaskStatus; tasks: Task[]; team: TeamMember[]; user: TeamMember; view: ViewMode }) {
-  return <div className="space-y-5"><div className="grid gap-3 md:grid-cols-4"><Metric label="Overdue" value={stats.overdue} icon={AlertTriangle} tone="red" /><Metric label="Due today" value={stats.dueToday} icon={CalendarDays} tone="amber" /><Metric label="Under review" value={stats.underReview} icon={Eye} tone="violet" /><Metric label="Closed" value={stats.closed} icon={CheckCircle2} tone="emerald" /></div><div className="rounded-lg border border-slate-200 bg-white shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4"><div><h2 className="font-semibold text-slate-950">My task queue</h2><p className="text-sm text-slate-500">{user.firmRole === "Article/Staff" ? "Update assigned work and move it to review." : "Create, assign, review, and close work."}</p></div><div className="flex flex-wrap items-center gap-2"><div className="flex min-w-64 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><Search size={17} className="text-slate-400" /><input className="w-full bg-transparent text-sm outline-none" placeholder="Search task, client, or status" value={query} onChange={(event) => setQuery(event.target.value)} /></div><select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "All" | TaskStatus)}><option>All</option>{statuses.map((status) => <option key={status}>{status}</option>)}</select><div className="flex rounded-lg border border-slate-200 bg-slate-50 p-1"><button className={(view === "list" ? "bg-white text-blue-700 shadow-sm" : "text-slate-600") + " inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium"} onClick={() => setView("list")} type="button"><List size={16} />List</button><button className={(view === "kanban" ? "bg-white text-blue-700 shadow-sm" : "text-slate-600") + " inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium"} onClick={() => setView("kanban")} type="button"><LayoutGrid size={16} />Kanban</button></div></div></div>{view === "list" ? <TaskTable clients={clients} openTask={openTask} tasks={tasks} team={team} /> : <Kanban clients={clients} openTask={openTask} tasks={allTasks} team={team} />}</div></div>;
+function TasksView({ allTasks, assignments, clients, openTask, query, setQuery, setStatusFilter, setView, stats, statusFilter, tasks, team, user, view }: { allTasks: Task[]; assignments: Assignment[]; clients: Client[]; openTask: (id: string) => void; query: string; setQuery: (value: string) => void; setStatusFilter: (value: "All" | TaskStatus) => void; setView: (value: ViewMode) => void; stats: { overdue: number; dueToday: number; underReview: number; closed: number }; statusFilter: "All" | TaskStatus; tasks: Task[]; team: TeamMember[]; user: TeamMember; view: ViewMode }) {
+  return <div className="space-y-5"><div className="grid gap-3 md:grid-cols-4"><Metric label="Overdue" value={stats.overdue} icon={AlertTriangle} tone="red" /><Metric label="Due today" value={stats.dueToday} icon={CalendarDays} tone="amber" /><Metric label="Under review" value={stats.underReview} icon={Eye} tone="violet" /><Metric label="Closed" value={stats.closed} icon={CheckCircle2} tone="emerald" /></div><div className="rounded-lg border border-slate-200 bg-white shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4"><div><h2 className="font-semibold text-slate-950">My task queue</h2><p className="text-sm text-slate-500">{user.firmRole === "Article/Staff" ? "Update assigned work and move it to review." : "Create, assign, review, and close work."}</p></div><div className="flex flex-wrap items-center gap-2"><div className="flex min-w-64 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><Search size={17} className="text-slate-400" /><input className="w-full bg-transparent text-sm outline-none" placeholder="Search task, client, assignment, or status" value={query} onChange={(event) => setQuery(event.target.value)} /></div><select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "All" | TaskStatus)}><option>All</option>{statuses.map((status) => <option key={status}>{status}</option>)}</select><div className="flex rounded-lg border border-slate-200 bg-slate-50 p-1"><button className={(view === "list" ? "bg-white text-blue-700 shadow-sm" : "text-slate-600") + " inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium"} onClick={() => setView("list")} type="button"><List size={16} />List</button><button className={(view === "kanban" ? "bg-white text-blue-700 shadow-sm" : "text-slate-600") + " inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium"} onClick={() => setView("kanban")} type="button"><LayoutGrid size={16} />Kanban</button></div></div></div>{view === "list" ? <TaskTable assignments={assignments} clients={clients} openTask={openTask} tasks={tasks} team={team} /> : <Kanban assignments={assignments} clients={clients} openTask={openTask} tasks={allTasks} team={team} />}</div></div>;
 }
 
 function Metric({ icon: Icon, label, tone, value }: { icon: typeof AlertTriangle; label: string; tone: "red" | "amber" | "violet" | "emerald"; value: number }) {
@@ -434,16 +511,88 @@ function Metric({ icon: Icon, label, tone, value }: { icon: typeof AlertTriangle
   return <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center justify-between"><p className="text-sm font-medium text-slate-500">{label}</p><span className={toneClass + " inline-flex h-9 w-9 items-center justify-center rounded-lg border"}><Icon size={18} /></span></div><p className="mt-3 text-3xl font-semibold text-slate-950">{value}</p></div>;
 }
 
-function TaskTable({ clients, openTask, tasks, team }: { clients: Client[]; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[] }) {
-  return <div className="overflow-x-auto"><table className="w-full min-w-[980px] border-collapse text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-semibold" title="Task title entered by the creator.">Task</th><th className="px-4 py-3 font-semibold" title="Client linked to the task.">Client</th><th className="px-4 py-3 font-semibold" title="Current workflow stage.">Status</th><th className="px-4 py-3 font-semibold" title="Due date and urgency.">Due</th><th className="px-4 py-3 font-semibold" title="People responsible for doing the work.">Assignees</th><th className="px-4 py-3 font-semibold" title="Person responsible for review and closure.">Reviewer</th><th className="px-4 py-3 font-semibold" title="Priority selected by the creator.">Priority</th><th className="px-4 py-3 font-semibold" title="Open the task detail panel.">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{tasks.length === 0 && <tr><td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={8}>No tasks yet. Add a client first, then create the first task with only the required details.</td></tr>}{tasks.map((task) => { const due = dueState(task); return <tr key={task.id} className="hover:bg-slate-50/70" title="Open this task to update status, notes, and review closure."><td className="px-4 py-3 font-medium text-slate-950">{task.title}</td><td className="px-4 py-3 text-slate-600">{clientName(clients, task.clientId)}</td><td className="px-4 py-3"><StatusPill status={task.status} /></td><td className="px-4 py-3"><span className={due.tone + " font-medium"}>{due.label}</span><div className="text-xs text-slate-500">{task.dueDate}</div></td><td className="px-4 py-3 text-slate-600">{task.assigneeIds.map((id) => userName(team, id)).join(", ")}</td><td className="px-4 py-3 text-slate-600">{userName(team, task.reviewerId)}</td><td className={priorityTone[task.priority] + " px-4 py-3 font-semibold"}>{task.priority}</td><td className="px-4 py-3"><button className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => openTask(task.id)} title="View task details and workflow actions" type="button">View</button></td></tr>; })}</tbody></table></div>;
+function TaskTable({ assignments, clients, openTask, tasks, team }: { assignments: Assignment[]; clients: Client[]; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[] }) {
+  return <div className="overflow-x-auto"><table className="w-full min-w-[1080px] border-collapse text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-semibold" title="Task title entered by the creator.">Task</th><th className="px-4 py-3 font-semibold" title="Client linked to the task.">Client</th><th className="px-4 py-3 font-semibold" title="Assignment stream this task rolls up into.">Assignment</th><th className="px-4 py-3 font-semibold" title="Current workflow stage.">Status</th><th className="px-4 py-3 font-semibold" title="Due date and urgency.">Due</th><th className="px-4 py-3 font-semibold" title="People responsible for doing the work.">Assignees</th><th className="px-4 py-3 font-semibold" title="Person responsible for review and closure.">Reviewer</th><th className="px-4 py-3 font-semibold" title="Priority selected by the creator.">Priority</th><th className="px-4 py-3 font-semibold" title="Open the task detail panel.">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{tasks.length === 0 && <tr><td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={9}>No tasks yet. Add a client first, then create an assignment and task with only the required details.</td></tr>}{tasks.map((task) => { const due = dueState(task); return <tr key={task.id} className="hover:bg-slate-50/70" title="Open this task to update status, notes, and review closure."><td className="px-4 py-3 font-medium text-slate-950">{task.title}</td><td className="px-4 py-3 text-slate-600">{clientName(clients, task.clientId)}</td><td className="px-4 py-3 text-slate-600">{assignmentName(assignments, task.assignmentId)}</td><td className="px-4 py-3"><StatusPill status={task.status} /></td><td className="px-4 py-3"><span className={due.tone + " font-medium"}>{due.label}</span><div className="text-xs text-slate-500">{task.dueDate}</div></td><td className="px-4 py-3 text-slate-600">{task.assigneeIds.map((id) => userName(team, id)).join(", ")}</td><td className="px-4 py-3 text-slate-600">{userName(team, task.reviewerId)}</td><td className={priorityTone[task.priority] + " px-4 py-3 font-semibold"}>{task.priority}</td><td className="px-4 py-3"><button className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => openTask(task.id)} title="View task details and workflow actions" type="button">View</button></td></tr>; })}</tbody></table></div>;
 }
 
-function Kanban({ clients, openTask, tasks, team }: { clients: Client[]; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[] }) {
-  return <div className="grid gap-3 overflow-x-auto p-4 lg:grid-cols-3 xl:grid-cols-6">{statuses.map((status) => <div key={status} className="min-h-72 rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-slate-800">{status}</h3><span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-slate-500">{tasks.filter((task) => task.status === status).length}</span></div><div className="space-y-2">{tasks.filter((task) => task.status === status).map((task) => <button key={task.id} className="w-full rounded-lg border border-slate-200 bg-white p-3 text-left shadow-sm hover:border-blue-200 hover:bg-blue-50/40" onClick={() => openTask(task.id)} type="button"><p className="text-sm font-semibold text-slate-950">{task.title}</p><p className="mt-1 text-xs text-slate-500">{clientName(clients, task.clientId)}</p><p className="mt-2 text-xs text-slate-500">{task.assigneeIds.map((id) => userName(team, id)).join(", ")}</p><div className="mt-3 flex items-center justify-between text-xs"><span className={dueState(task).tone}>{dueState(task).label}</span><span className={priorityTone[task.priority]}>{task.priority}</span></div></button>)}</div></div>)}</div>;
+function Kanban({ assignments, clients, openTask, tasks, team }: { assignments: Assignment[]; clients: Client[]; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[] }) {
+  return <div className="grid gap-3 overflow-x-auto p-4 lg:grid-cols-3 xl:grid-cols-6">{statuses.map((status) => <div key={status} className="min-h-72 rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-slate-800">{status}</h3><span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-slate-500">{tasks.filter((task) => task.status === status).length}</span></div><div className="space-y-2">{tasks.filter((task) => task.status === status).map((task) => <button key={task.id} className="w-full rounded-lg border border-slate-200 bg-white p-3 text-left shadow-sm hover:border-blue-200 hover:bg-blue-50/40" onClick={() => openTask(task.id)} type="button"><p className="text-sm font-semibold text-slate-950">{task.title}</p><p className="mt-1 text-xs text-slate-500">{clientName(clients, task.clientId)}</p><p className="mt-1 text-xs font-medium text-blue-700">{assignmentName(assignments, task.assignmentId)}</p><p className="mt-2 text-xs text-slate-500">{task.assigneeIds.map((id) => userName(team, id)).join(", ")}</p><div className="mt-3 flex items-center justify-between text-xs"><span className={dueState(task).tone}>{dueState(task).label}</span><span className={priorityTone[task.priority]}>{task.priority}</span></div></button>)}</div></div>)}</div>;
 }
 
-function ClientsView({ clients, open, tasks }: { clients: Client[]; open: () => void; tasks: Task[] }) {
-  return <Panel title="Client master" subtitle="Client name is required. PAN, GSTIN, email, and mobile stay optional." action="Add Client" onAction={open}><div className="divide-y divide-slate-100">{clients.length === 0 && <div className="p-8 text-center text-sm text-slate-500">No clients added yet. Add the first client to unlock task creation against that client.</div>}{clients.map((client) => <div key={client.id} className="grid gap-2 p-4 md:grid-cols-[1.2fr_0.8fr_0.8fr_1fr_0.7fr]" title="Client record with optional statutory and contact details."><div><p className="font-semibold text-slate-950">{client.name}</p><p className="text-xs text-slate-500">{tasks.filter((task) => task.clientId === client.id).length} linked tasks</p></div><p className="text-sm text-slate-600">PAN: {client.pan ?? "Optional"}</p><p className="text-sm text-slate-600">GSTIN: {client.gstin ?? "Optional"}</p><p className="text-sm text-slate-600">{client.email ?? client.mobile ?? "No contact added"}</p><span className="inline-flex w-fit rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700" title="Client status">{client.status}</span></div>)}</div></Panel>;
+function AssignmentsView({ actions, assignments, clients, openAssignment, openClient, openTask, tasks, team, user }: { actions: WorkMapActions; assignments: Assignment[]; clients: Client[]; openAssignment: () => void; openClient: () => void; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[]; user: TeamMember }) {
+  const firmWide = user.platformRole === "Platform Owner" || user.firmRole !== "Article/Staff";
+  const canCoordinate = creatorRoles.includes(user.firmRole) || user.platformRole === "Platform Owner";
+  const clientRows = clients.map((client) => {
+    const clientTasks = tasks.filter((task) => task.clientId === client.id);
+    const clientAssignments = assignments.filter((assignment) => assignment.clientId === client.id).filter((assignment) => firmWide || assignment.ownerId === user.id || assignment.reviewerId === user.id || clientTasks.some((task) => task.assignmentId === assignment.id && (task.assigneeIds.includes(user.id) || task.reviewerId === user.id)));
+    const unmappedTasks = clientTasks.filter((task) => !task.assignmentId && (firmWide || task.assigneeIds.includes(user.id) || task.reviewerId === user.id));
+    return { client, clientAssignments, unmappedTasks };
+  }).filter((row) => firmWide || row.clientAssignments.length > 0 || row.unmappedTasks.length > 0);
+  const totalAssignments = clientRows.reduce((sum, row) => sum + row.clientAssignments.length, 0);
+  const allVisibleTasks = clientRows.flatMap((row) => [...row.clientAssignments.flatMap((assignment) => tasks.filter((task) => task.assignmentId === assignment.id)), ...row.unmappedTasks]);
+  const closedCount = allVisibleTasks.filter((task) => task.status === "Closed").length;
+  const overdueCount = allVisibleTasks.filter((task) => task.status !== "Closed" && task.dueDate < todayIso).length;
+
+  return <div className="space-y-5">
+    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h2 className="text-lg font-semibold text-slate-950">Client-wise assignment tree</h2><p className="text-sm leading-6 text-slate-500">Partner view: client to assignment to manager, reviewer, assignee, task status, and closure progress.</p></div>
+        <div className="flex flex-wrap gap-2"><button className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={openClient} title="Add a client before creating assignment streams" type="button">Add Client</button><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700" onClick={openAssignment} title="Create a client assignment stream" type="button">Add Assignment</button></div>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-4"><ReportPanel title="Clients" value={String(clientRows.length)} detail="Visible client groups" icon={Building2} /><ReportPanel title="Assignments" value={String(totalAssignments)} detail="Active workstreams" icon={LayoutGrid} /><ReportPanel title="Open tasks" value={String(allVisibleTasks.length - closedCount)} detail="Pending execution" icon={ClipboardList} /><ReportPanel title="Overdue" value={String(overdueCount)} detail="Needs partner attention" icon={AlertTriangle} /></div>
+    </section>
+
+    {clients.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">Add a client first. Then create assignment streams such as return filing, audit closure, notice response, or monthly compliance.</div>}
+    {clients.length > 0 && totalAssignments === 0 && allVisibleTasks.length === 0 && <div className="rounded-lg border border-dashed border-blue-200 bg-blue-50 p-8 text-center text-sm text-blue-900">No assignment streams yet. Create the first assignment so tasks roll up cleanly for partner review.</div>}
+
+    <div className="space-y-4">
+      {clientRows.map(({ client, clientAssignments, unmappedTasks }) => <section key={client.id} className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <details open>
+          <summary className="cursor-pointer list-none border-b border-slate-100 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-blue-700">Client</p><h3 className="text-lg font-semibold text-slate-950">{client.name}</h3></div><div className="flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-700">{clientAssignments.length} assignments</span><span className="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-700">{tasks.filter((task) => task.clientId === client.id && task.status !== "Closed").length} open tasks</span></div></div>
+          </summary>
+          <div className="space-y-3 p-4">
+            {clientAssignments.map((assignment) => <AssignmentTreeItem key={assignment.id} actions={actions} assignment={assignment} canCoordinate={canCoordinate} openTask={openTask} tasks={tasks.filter((task) => task.assignmentId === assignment.id).sort((a, b) => taskSequence(a) - taskSequence(b))} team={team} />)}
+            {unmappedTasks.length > 0 && <AssignmentTreeItem actions={actions} canCoordinate={canCoordinate} openTask={openTask} tasks={unmappedTasks.sort((a, b) => taskSequence(a) - taskSequence(b))} team={team} title="Unmapped tasks" />}
+            {clientAssignments.length === 0 && unmappedTasks.length === 0 && <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">No assignment or task activity for this client yet.</div>}
+          </div>
+        </details>
+      </section>)}
+    </div>
+  </div>;
+}
+
+function AssignmentTreeItem({ actions, assignment, canCoordinate, openTask, tasks, team, title }: { actions: WorkMapActions; assignment?: Assignment; canCoordinate: boolean; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[]; title?: string }) {
+  const closed = tasks.filter((task) => task.status === "Closed").length;
+  const open = tasks.length - closed;
+  const overdue = tasks.filter((task) => task.status !== "Closed" && task.dueDate < todayIso).length;
+  const progress = tasks.length ? Math.round((closed / tasks.length) * 100) : 0;
+  return <details className="rounded-lg border border-slate-200 bg-slate-50" open title="Assignment stream with task roll-up">
+    <summary className="cursor-pointer list-none p-4">
+      <div className="grid gap-3 lg:grid-cols-[1.4fr_0.9fr_0.9fr_0.8fr] lg:items-center">
+        <div><p className="text-sm font-semibold text-slate-950">{assignment?.name ?? title}</p><p className="mt-1 text-xs text-slate-500">{assignment?.period ?? "No period set"}{assignment?.dueDate ? " - Due " + assignment.dueDate : ""}</p></div>
+        <div className="text-xs text-slate-600"><span className="font-semibold text-slate-800">Manager:</span> {assignment ? userName(team, assignment.ownerId) : "Not mapped"}</div>
+        <div className="text-xs text-slate-600"><span className="font-semibold text-slate-800">Reviewer:</span> {assignment ? userName(team, assignment.reviewerId) : "Not mapped"}</div>
+        <div className="flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-white px-2.5 py-1 font-semibold text-slate-700">{open} open</span><span className={(overdue ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700") + " rounded-full px-2.5 py-1 font-semibold"}>{overdue} overdue</span></div>
+      </div>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white"><div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-700" style={{ width: `${progress}%` }} /></div>
+    </summary>
+    <div className="border-t border-slate-200 bg-white p-3">
+      {tasks.length === 0 && <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">No tasks linked to this assignment yet.</div>}
+      <div className="space-y-2">{tasks.map((task, index) => <div key={task.id} className="grid gap-2 rounded-lg border border-slate-100 bg-white p-3 text-sm md:grid-cols-[1.2fr_0.55fr_0.85fr_0.85fr_0.7fr_0.55fr] md:items-center" title="Task mapping row">
+        <button className="text-left font-semibold text-slate-950 hover:text-blue-700" onClick={() => openTask(task.id)} type="button">{task.title}</button>
+        <StatusPill status={task.status} />
+        <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate} onChange={(event) => actions.reassignTask(task.id, event.target.value)} title="Reassign task owner" value={task.assigneeIds[0] ?? ""}>{team.filter((member) => member.isActive && member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select>
+        <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate} onChange={(event) => actions.updateReviewer(task.id, event.target.value)} title="Change reviewer" value={task.reviewerId}>{team.filter((member) => member.isActive && member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select>
+        <span className={dueState(task).tone + " text-xs font-semibold"}>{dueState(task).label} <span className="text-slate-400">{task.dueDate}</span></span>
+        <div className="flex gap-1"><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || index === 0} onClick={() => actions.resequenceTask(task.id, "up")} title="Move task earlier" type="button">Up</button><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || index === tasks.length - 1} onClick={() => actions.resequenceTask(task.id, "down")} title="Move task later" type="button">Down</button></div>
+      </div>)}</div>
+    </div>
+  </details>;
+}
+
+function ClientsView({ assignments, clients, open, tasks }: { assignments: Assignment[]; clients: Client[]; open: () => void; tasks: Task[] }) {
+  return <Panel title="Client master" subtitle="Client name is required. PAN, GSTIN, email, and mobile stay optional." action="Add Client" onAction={open}><div className="divide-y divide-slate-100">{clients.length === 0 && <div className="p-8 text-center text-sm text-slate-500">No clients added yet. Add the first client to unlock task creation against that client.</div>}{clients.map((client) => <div key={client.id} className="grid gap-2 p-4 md:grid-cols-[1.2fr_0.7fr_0.7fr_0.8fr_1fr_0.7fr]" title="Client record with optional statutory and contact details."><div><p className="font-semibold text-slate-950">{client.name}</p><p className="text-xs text-slate-500">{tasks.filter((task) => task.clientId === client.id).length} linked tasks</p></div><p className="text-sm text-slate-600">{assignments.filter((assignment) => assignment.clientId === client.id).length} assignments</p><p className="text-sm text-slate-600">PAN: {client.pan ?? "Optional"}</p><p className="text-sm text-slate-600">GSTIN: {client.gstin ?? "Optional"}</p><p className="text-sm text-slate-600">{client.email ?? client.mobile ?? "No contact added"}</p><span className="inline-flex w-fit rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700" title="Client status">{client.status}</span></div>)}</div></Panel>;
 }
 
 function TeamView({ actions, open, team, user }: { actions: MemberActions; open: () => void; team: TeamMember[]; user: TeamMember }) {
@@ -525,7 +674,7 @@ function AdminView({ actions, activity, clients, modules, openTeam, tasks, team,
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Completion quality</p>
               <p className="mt-1 text-sm text-slate-300">Closed work as a share of total tasks</p>
             </div>
-            <Sparkles className="animate-pulse text-amber-200" size={20} />
+            <Gauge className="text-amber-200" size={20} />
           </div>
           <DonutChart value={completionRate} label="Closure" />
           <div className="mt-5 grid grid-cols-3 gap-2 text-center text-xs">
@@ -701,10 +850,16 @@ function OwnerTool({ icon: Icon, label, text }: { icon: typeof Eye; label: strin
   return <div className="rounded-lg border border-slate-100 bg-slate-50 p-3" title={text}><Icon className="text-blue-600" size={18} /><p className="mt-3 text-sm font-semibold text-slate-950">{label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{text}</p></div>;
 }
 
-function TaskModal({ clients, close, submit, team }: { clients: Client[]; close: () => void; submit: (event: FormEvent<HTMLFormElement>) => void; team: TeamMember[] }) {
+function TaskModal({ assignments, clients, close, submit, team }: { assignments: Assignment[]; clients: Client[]; close: () => void; submit: (event: FormEvent<HTMLFormElement>) => void; team: TeamMember[] }) {
   const activeTeam = team.filter((member) => member.isActive);
   if (clients.length === 0) return <ModalFrame title="Create task" subtitle="Add one client before creating tasks." close={close}><div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900" title="Tasks must be linked to a client for clean tracking.">Guidance: First add the client in Client master. Then return here and create the task with only title, client, due date, assignee, and reviewer.</div><div className="mt-4 flex justify-end"><button className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={close} type="button">Close</button></div></ModalFrame>;
-  return <ModalFrame title="Create task" subtitle="Required fields first. Optional details stay tucked away." close={close}><form className="space-y-4" onSubmit={submit}><Field label="Task title" name="title" required /><div className="grid gap-4 md:grid-cols-2"><Select label="Client" name="clientId" required><option value="">Select client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</Select><Field label="Due date" name="dueDate" required type="date" /></div><div className="grid gap-4 md:grid-cols-2"><label className="block"><span className="text-sm font-medium text-slate-700">Assignees</span><select className="mt-1 min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" name="assigneeIds" multiple required>{activeTeam.filter((member) => member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.id}>{member.name} - {member.firmRole}</option>)}</select><span className="mt-1 block text-xs text-slate-500">Hold Ctrl to select multiple active users.</span></label><div className="space-y-4"><Select label="Reviewer" name="reviewerId" required><option value="">Select reviewer</option>{activeTeam.filter((member) => member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.id}>{member.name} - {member.firmRole}</option>)}</Select><Select label="Priority" name="priority"><option>Low</option><option>Normal</option><option>High</option><option>Urgent</option></Select></div></div><textarea className="min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" name="description" placeholder="More details, optional" /><Actions close={close} label="Create Task" /></form></ModalFrame>;
+  return <ModalFrame title="Create task" subtitle="Required fields first. Link to an assignment when the work should roll up for partner review." close={close}><form className="space-y-4" onSubmit={submit}><Field label="Task title" name="title" required /><div className="grid gap-4 md:grid-cols-2"><Select label="Client" name="clientId" required><option value="">Select client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</Select><Select label="Assignment" name="assignmentId"><option value="">Unmapped task</option>{assignments.map((assignment) => <option key={assignment.id} value={assignment.id}>{clientName(clients, assignment.clientId)} - {assignment.name}</option>)}</Select><Field label="Due date" name="dueDate" required type="date" /><Select label="Priority" name="priority"><option>Low</option><option>Normal</option><option>High</option><option>Urgent</option></Select></div><div className="grid gap-4 md:grid-cols-2"><label className="block"><span className="text-sm font-medium text-slate-700">Assignees</span><select className="mt-1 min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" name="assigneeIds" multiple required>{activeTeam.filter((member) => member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.id}>{member.name} - {member.firmRole}</option>)}</select><span className="mt-1 block text-xs text-slate-500">Hold Ctrl to select multiple active users.</span></label><Select label="Reviewer" name="reviewerId" required><option value="">Select reviewer</option>{activeTeam.filter((member) => member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.id}>{member.name} - {member.firmRole}</option>)}</Select></div><textarea className="min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" name="description" placeholder="More details, optional" /><Actions close={close} label="Create Task" /></form></ModalFrame>;
+}
+
+function AssignmentModal({ clients, close, submit, team }: { clients: Client[]; close: () => void; submit: (event: FormEvent<HTMLFormElement>) => void; team: TeamMember[] }) {
+  const activeTeam = team.filter((member) => member.isActive);
+  if (clients.length === 0) return <ModalFrame title="Create assignment" subtitle="Add one client before creating an assignment stream." close={close}><div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">Create the client first. Assignment streams sit under clients and collect related tasks for partner-level tracking.</div><div className="mt-4 flex justify-end"><button className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={close} type="button">Close</button></div></ModalFrame>;
+  return <ModalFrame title="Create assignment" subtitle="Create the roll-up stream before adding detailed tasks." close={close}><form className="space-y-4" onSubmit={submit}><Field label="Assignment name" name="name" placeholder="For example: Monthly GST compliance" required /><div className="grid gap-4 md:grid-cols-2"><Select label="Client" name="clientId" required><option value="">Select client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</Select><Field label="Period" name="period" placeholder="For example: April 2026" /></div><div className="grid gap-4 md:grid-cols-2"><Select label="Manager / owner" name="ownerId" required><option value="">Select manager</option>{activeTeam.filter((member) => member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.id}>{member.name} - {member.firmRole}</option>)}</Select><Select label="Reviewer" name="reviewerId" required><option value="">Select reviewer</option>{activeTeam.filter((member) => member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.id}>{member.name} - {member.firmRole}</option>)}</Select></div><Field label="Target date" name="dueDate" type="date" /><Actions close={close} label="Create Assignment" /></form></ModalFrame>;
 }
 
 function ClientModal({ close, submit }: { close: () => void; submit: (event: FormEvent<HTMLFormElement>) => void }) {
@@ -715,13 +870,13 @@ function TeamModal({ close, submit }: { close: () => void; submit: (event: FormE
   return <ModalFrame title="Add team member" subtitle="Use official TAMS email IDs only. Password is created by the user on first sign-in." close={close}><form className="space-y-4" onSubmit={submit}><Field label="Name" name="name" required /><Field label="TAMS email" name="email" pattern="^[^\\s@]+@tams\\.co\\.in$" placeholder="name@tams.co.in" required type="email" /><Select label="Role" name="firmRole"><option>Firm Admin</option><option>Partner</option><option>Manager</option><option>Article/Staff</option></Select><Actions close={close} label="Add User" /></form></ModalFrame>;
 }
 
-function TaskDrawer({ addNote, clients, close, moveTask, task, team, user }: { addNote: (taskId: string, note: string) => void; clients: Client[]; close: () => void; moveTask: (taskId: string, status: TaskStatus, remarks?: string) => void; task: Task; team: TeamMember[]; user: TeamMember }) {
+function TaskDrawer({ addNote, assignments, clients, close, moveTask, task, team, user }: { addNote: (taskId: string, note: string) => void; assignments: Assignment[]; clients: Client[]; close: () => void; moveTask: (taskId: string, status: TaskStatus, remarks?: string) => void; task: Task; team: TeamMember[]; user: TeamMember }) {
   const [note, setNote] = useState("");
   const [remarks, setRemarks] = useState("");
   const assignee = task.assigneeIds.includes(user.id);
   const reviewer = task.reviewerId === user.id || user.firmRole === "Firm Admin" || user.platformRole === "Platform Owner";
   const canUpdate = assignee || reviewer || task.createdById === user.id;
-  return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl"><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4"><div><button className="mb-2 text-sm font-semibold text-slate-600 hover:text-slate-950" onClick={close} type="button">Back</button><h2 className="text-xl font-semibold text-slate-950">{task.title}</h2><p className="mt-1 text-sm text-slate-500">{clientName(clients, task.clientId)}</p></div><StatusPill status={task.status} /></div><div className="space-y-5 p-5"><div className="grid gap-3 md:grid-cols-2"><Info label="Due date" value={task.dueDate + " - " + dueState(task).label} /><Info label="Priority" value={task.priority} /><Info label="Assignees" value={task.assigneeIds.map((id) => userName(team, id)).join(", ")} /><Info label="Reviewer" value={userName(team, task.reviewerId)} /></div>{task.description && <Info label="Description" value={task.description} />}<div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Workflow actions</h3><div className="mt-3 flex flex-wrap gap-2"><Workflow disabled={!canUpdate || task.status === "Closed"} label="Start / resume" action={() => moveTask(task.id, "In Progress")} /><Workflow disabled={!canUpdate || task.status === "Closed"} label="Pending client" action={() => moveTask(task.id, "Pending Client")} /><Workflow disabled={!canUpdate || task.status === "Closed"} label="Pending internal" action={() => moveTask(task.id, "Pending Internal")} /><Workflow disabled={!assignee || task.status === "Closed"} label="Move to review" action={() => moveTask(task.id, "Under Review")} /><Workflow disabled={!reviewer || task.status !== "Under Review"} label="Send back" action={() => moveTask(task.id, "In Progress")} /></div><div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3"><label className="block text-sm font-medium text-slate-700">Closure remarks</label><textarea className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Required before reviewer closes the task" /><button className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" disabled={!reviewer || task.status !== "Under Review" || !remarks.trim()} onClick={() => moveTask(task.id, "Closed", remarks.trim())} type="button">Close after review</button></div></div><div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Progress notes</h3><form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); addNote(task.id, note); setNote(""); }}><input className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" disabled={!canUpdate} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add progress note" /><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!canUpdate || !note.trim()} type="submit">Add</button></form><div className="mt-4 space-y-3">{task.notes.map((item) => <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm"><p className="text-slate-700">{item.text}</p><p className="mt-2 text-xs text-slate-500">{item.authorId ? userName(team, item.authorId) : item.author} - {item.createdAt}{item.newStatus ? " - " + (item.oldStatus ?? "Status") + " to " + item.newStatus : ""}</p></div>)}</div></div>{task.closureRemarks && <Info label="Closure remarks" value={task.closureRemarks} />}</div></aside></div>;
+  return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl"><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4"><div><button className="mb-2 text-sm font-semibold text-slate-600 hover:text-slate-950" onClick={close} type="button">Back</button><h2 className="text-xl font-semibold text-slate-950">{task.title}</h2><p className="mt-1 text-sm text-slate-500">{clientName(clients, task.clientId)} - {assignmentName(assignments, task.assignmentId)}</p></div><StatusPill status={task.status} /></div><div className="space-y-5 p-5"><div className="grid gap-3 md:grid-cols-2"><Info label="Assignment" value={assignmentName(assignments, task.assignmentId)} /><Info label="Due date" value={task.dueDate + " - " + dueState(task).label} /><Info label="Priority" value={task.priority} /><Info label="Assignees" value={task.assigneeIds.map((id) => userName(team, id)).join(", ")} /><Info label="Reviewer" value={userName(team, task.reviewerId)} /></div>{task.description && <Info label="Description" value={task.description} />}<div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Workflow actions</h3><div className="mt-3 flex flex-wrap gap-2"><Workflow disabled={!canUpdate || task.status === "Closed"} label="Start / resume" action={() => moveTask(task.id, "In Progress")} /><Workflow disabled={!canUpdate || task.status === "Closed"} label="Pending client" action={() => moveTask(task.id, "Pending Client")} /><Workflow disabled={!canUpdate || task.status === "Closed"} label="Pending internal" action={() => moveTask(task.id, "Pending Internal")} /><Workflow disabled={!assignee || task.status === "Closed"} label="Move to review" action={() => moveTask(task.id, "Under Review")} /><Workflow disabled={!reviewer || task.status !== "Under Review"} label="Send back" action={() => moveTask(task.id, "In Progress")} /></div><div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3"><label className="block text-sm font-medium text-slate-700">Closure remarks</label><textarea className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Required before reviewer closes the task" /><button className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" disabled={!reviewer || task.status !== "Under Review" || !remarks.trim()} onClick={() => moveTask(task.id, "Closed", remarks.trim())} type="button">Close after review</button></div></div><div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Progress notes</h3><form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); addNote(task.id, note); setNote(""); }}><input className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" disabled={!canUpdate} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add progress note" /><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!canUpdate || !note.trim()} type="submit">Add</button></form><div className="mt-4 space-y-3">{task.notes.map((item) => <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm"><p className="text-slate-700">{item.text}</p><p className="mt-2 text-xs text-slate-500">{item.authorId ? userName(team, item.authorId) : item.author} - {item.createdAt}{item.newStatus ? " - " + (item.oldStatus ?? "Status") + " to " + item.newStatus : ""}</p></div>)}</div></div>{task.closureRemarks && <Info label="Closure remarks" value={task.closureRemarks} />}</div></aside></div>;
 }
 
 function ModalFrame({ children, close, subtitle, title }: { children: React.ReactNode; close: () => void; subtitle: string; title: string }) {
@@ -756,12 +911,24 @@ function clientName(clients: Client[], id: string) {
   return clients.find((client) => client.id === id)?.name ?? "Unknown client";
 }
 
+function assignmentName(assignments: Assignment[], id?: string) {
+  if (!id) return "Unmapped task";
+  return assignments.find((assignment) => assignment.id === id)?.name ?? "Unmapped task";
+}
+
 function userName(team: TeamMember[], id: string) {
   return team.find((member) => member.id === id)?.name ?? "Unknown user";
 }
 
 function taskTitle(tasks: Task[], id: string) {
   return tasks.find((task) => task.id === id)?.title ?? "Task";
+}
+
+function taskSequence(task: Task) {
+  if (typeof task.sequence === "number") return task.sequence;
+  const numericId = Number(task.id.replace(/\D/g, ""));
+  if (Number.isFinite(numericId) && numericId > 0) return numericId;
+  return new Date(task.dueDate).getTime();
 }
 
 function dueState(task: Task) {

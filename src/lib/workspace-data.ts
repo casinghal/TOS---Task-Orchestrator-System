@@ -31,6 +31,17 @@ export type Client = {
   status: "Active" | "Inactive";
 };
 
+export type Assignment = {
+  id: string;
+  clientId: string;
+  name: string;
+  period?: string;
+  ownerId: string;
+  reviewerId: string;
+  dueDate?: string;
+  status: "Active" | "On Hold" | "Completed";
+};
+
 export type TaskNote = {
   id: string;
   authorId?: string;
@@ -45,6 +56,7 @@ export type Task = {
   id: string;
   title: string;
   clientId: string;
+  assignmentId?: string;
   dueDate: string;
   status: TaskStatus;
   priority: "Low" | "Normal" | "High" | "Urgent";
@@ -52,6 +64,7 @@ export type Task = {
   reviewerId: string;
   createdById: string;
   updatedAt: string;
+  sequence?: number;
   description?: string;
   closureRemarks?: string;
   closedAt?: string;
@@ -146,6 +159,8 @@ export const initialTeamMembers: TeamMember[] = [
 
 export const initialClients: Client[] = [];
 
+export const initialAssignments: Assignment[] = [];
+
 export const initialTasks: Task[] = [];
 
 export const initialActivityEvents: ActivityEvent[] = [];
@@ -177,4 +192,5 @@ export const statuses: TaskStatus[] = [
 ];
 export const teamMembers = initialTeamMembers;
 export const clients = initialClients;
+export const assignments = initialAssignments;
 export const tasks = initialTasks;
