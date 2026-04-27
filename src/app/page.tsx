@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Activity,
   AlertTriangle,
   BarChart3,
   Bell,
@@ -8,8 +9,11 @@ import {
   CalendarDays,
   CheckCircle2,
   ClipboardList,
+  Crown,
   Eye,
   FileDown,
+  Gauge,
+  KeyRound,
   LayoutGrid,
   List,
   LockKeyhole,
@@ -17,10 +21,15 @@ import {
   Mail,
   Plus,
   Search,
+  Settings,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
+  TrendingUp,
   UserCog,
+  UserPlus,
   Users,
+  Zap,
   X,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
@@ -254,7 +263,7 @@ export default function Home() {
   if (!user) return <LoginScreen onLogin={login} team={teamList} />;
 
   return (
-    <main className="min-h-screen text-slate-900">
+    <main className="min-h-screen overflow-x-hidden text-slate-900">
       <div className="flex min-h-screen">
         <Sidebar active={activeSection} setActive={setActiveSection} user={user} />
         <section className="flex min-w-0 flex-1 flex-col">
@@ -265,7 +274,7 @@ export default function Home() {
             {activeSection === "clients" && <ClientsView clients={clientList} tasks={taskList} open={() => setModal("client")} />}
             {activeSection === "team" && <TeamView team={teamList} user={user} open={() => setModal("team")} />}
             {activeSection === "reports" && <ReportsView tasks={taskList} clients={clientList} team={teamList} />}
-            {activeSection === "admin" && <AdminView user={user} tasks={taskList} clients={clientList} team={teamList} activity={activity} modules={modules} toggleModule={toggleModule} />}
+            {activeSection === "admin" && <AdminView user={user} tasks={taskList} clients={clientList} team={teamList} activity={activity} modules={modules} toggleModule={toggleModule} openTeam={() => setModal("team")} />}
           </div>
         </section>
       </div>
@@ -368,9 +377,207 @@ function ReportsView({ clients, tasks, team }: { clients: Client[]; tasks: Task[
   return <div className="space-y-4"><div className="grid gap-3 md:grid-cols-4"><ReportPanel title="Active tasks" value={String(active.length)} detail="Open through review" icon={ClipboardList} /><ReportPanel title="Overdue" value={String(overdue)} detail="Needs attention" icon={AlertTriangle} /><ReportPanel title="Review queue" value={String(tasks.filter((task) => task.status === "Under Review").length)} detail="Pending closure" icon={Eye} /><ReportPanel title="Top workload" value={busiest?.name ?? "None"} detail="Assignee load" icon={Users} /></div><div className="grid gap-4 xl:grid-cols-2"><div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-semibold text-slate-950">Status distribution</h2><div className="mt-4 grid gap-3 md:grid-cols-3">{statuses.map((status) => <div key={status} className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-medium text-slate-500">{status}</p><p className="mt-2 text-2xl font-semibold text-slate-950">{tasks.filter((task) => task.status === status).length}</p></div>)}</div></div><div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-semibold text-slate-950">Client-wise workload</h2><div className="mt-4 space-y-3">{clients.map((client) => <div key={client.id} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm"><span className="font-medium text-slate-700">{client.name}</span><span className="font-semibold text-slate-950">{tasks.filter((task) => task.clientId === client.id && task.status !== "Closed").length} active</span></div>)}</div></div></div></div>;
 }
 
-function AdminView({ activity, clients, modules, tasks, team, toggleModule, user }: { activity: ActivityEvent[]; clients: Client[]; modules: ModuleFlag[]; tasks: Task[]; team: TeamMember[]; toggleModule: (id: string) => void; user: TeamMember }) {
+function AdminView({ activity, clients, modules, openTeam, tasks, team, toggleModule, user }: { activity: ActivityEvent[]; clients: Client[]; modules: ModuleFlag[]; openTeam: () => void; tasks: Task[]; team: TeamMember[]; toggleModule: (id: string) => void; user: TeamMember }) {
   const owner = user.platformRole === "Platform Owner";
-  return <div className="space-y-4"><div className="rounded-lg border border-blue-200 bg-blue-50 p-4"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 text-blue-700" size={20} /><div><h2 className="font-semibold text-blue-950">Platform Owner Control Room</h2><p className="mt-1 text-sm text-blue-800">Powerful controls stay away from daily task screens. Sensitive actions are logged.</p></div></div></div>{!owner && <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Firm-level admin view active. Platform-wide controls require Platform Owner.</div>}<div className="grid gap-3 md:grid-cols-4"><ReportPanel title="Firms" value="1" detail={firm.status + " - " + firm.plan} icon={Building2} /><ReportPanel title="Users" value={String(team.length)} detail="TAMS-TKG workspace" icon={Users} /><ReportPanel title="Clients" value={String(clients.length)} detail="Client master" icon={Building2} /><ReportPanel title="Tasks" value={String(tasks.length)} detail="All statuses" icon={ClipboardList} /></div><div className="grid gap-4 xl:grid-cols-2"><div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center justify-between"><div><h2 className="font-semibold text-slate-950">Module controls</h2><p className="text-sm text-slate-500">Owner-controlled feature access for the workspace.</p></div><SlidersHorizontal className="text-blue-600" size={20} /></div><div className="mt-4 space-y-3">{modules.map((item) => <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2"><div><p className="text-sm font-semibold text-slate-900">{item.name}</p><p className="text-xs text-slate-500">{item.key} - {item.visibility}</p></div><button className={(item.enabled ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700") + " rounded-full px-3 py-1 text-xs font-semibold"} disabled={!owner} onClick={() => toggleModule(item.id)} type="button">{item.enabled ? "Enabled" : "Hidden"}</button></div>)}</div></div><div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-semibold text-slate-950">Plan controls</h2><p className="text-sm text-slate-500">Subscription and feature limits for this workspace.</p><div className="mt-4 space-y-3">{plans.map((plan) => <div key={plan.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3"><div className="flex items-center justify-between"><p className="font-semibold text-slate-950">{plan.name}</p><span className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-slate-600">{plan.status}</span></div><p className="mt-1 text-sm text-slate-600">{plan.price}</p><p className="mt-1 text-xs text-slate-500">{plan.limits}</p></div>)}</div></div></div><div className="grid gap-4 xl:grid-cols-2"><div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-semibold text-slate-950">Activity monitor</h2><div className="mt-4 space-y-3">{activity.slice(0, 8).map((event) => <div key={event.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm"><p className="font-semibold text-slate-900">{event.action}</p><p className="mt-1 text-slate-600">{event.detail}</p><p className="mt-1 text-xs text-slate-500">{userName(team, event.actorId)} - {event.createdAt}</p></div>)}</div></div><div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-semibold text-slate-950">Owner tools</h2><div className="mt-4 grid gap-3 sm:grid-cols-2"><OwnerTool icon={Eye} label="View-as mode" text="Controlled role visibility with audit logging." /><OwnerTool icon={FileDown} label="Data exports" text="Firm, user, task, client, and activity export controls." /><OwnerTool icon={LockKeyhole} label="Audit tools" text="Sensitive actions create activity entries." /><OwnerTool icon={Mail} label="Email reminders" text="Daily summary and overdue alert controls." /></div></div></div></div>;
+  const activeTasks = tasks.filter((task) => task.status !== "Closed");
+  const overdueTasks = activeTasks.filter((task) => task.dueDate < todayIso);
+  const reviewTasks = tasks.filter((task) => task.status === "Under Review");
+  const closedTasks = tasks.filter((task) => task.status === "Closed");
+  const enabledModules = modules.filter((module) => module.enabled).length;
+  const completionRate = tasks.length ? Math.round((closedTasks.length / tasks.length) * 100) : 0;
+  const healthScore = Math.max(0, Math.min(100, 92 - overdueTasks.length * 12 + reviewTasks.length * 3 + enabledModules));
+  const activeUsers = team.filter((member) => member.isActive).length;
+  const roleRows = ["Platform Owner", "Firm Admin", "Partner", "Manager", "Article/Staff"].map((role) => ({
+    role,
+    users: team.filter((member) => role === "Platform Owner" ? member.platformRole === "Platform Owner" : member.firmRole === role && member.platformRole !== "Platform Owner").length,
+  }));
+
+  return <div className="space-y-5 overflow-x-hidden">
+    <section className="overflow-hidden rounded-xl border border-slate-800 bg-[#080d18] text-white shadow-xl shadow-slate-950/10">
+      <div className="relative grid min-w-0 gap-6 p-5 md:p-6 2xl:grid-cols-[1.25fr_0.75fr]">
+        <div className="absolute right-8 top-6 h-24 w-24 rounded-full bg-amber-300/10 blur-3xl" />
+        <div className="absolute bottom-0 left-1/2 h-24 w-48 rounded-full bg-emerald-300/10 blur-3xl" />
+        <div className="relative min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-2 rounded-full border border-amber-200/20 bg-amber-200/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-amber-100"><Crown size={14} /> Admin Command Center</span>
+            <span className="inline-flex items-center rounded-full border border-emerald-200/20 bg-emerald-200/10 px-3 py-1 text-xs font-semibold text-emerald-100">{firm.status} workspace</span>
+          </div>
+          <h2 className="mt-5 max-w-3xl text-3xl font-semibold leading-tight md:text-4xl">Control TAMS-TKG with visibility, governance, and calm operational discipline.</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Start with firm health, then review users, modules, plan limits, and activity. Sensitive platform controls stay visible, traceable, and role-gated.</p>
+          <div className="mt-6 grid gap-3 md:grid-cols-3">
+            <AdminMetric icon={Gauge} label="Workspace health" value={healthScore + "%"} detail={overdueTasks.length ? `${overdueTasks.length} overdue attention point${overdueTasks.length === 1 ? "" : "s"}` : "No overdue pressure"} tone="emerald" />
+            <AdminMetric icon={Users} label="Active users" value={String(activeUsers)} detail={`${team.length} total profiles`} tone="sky" />
+            <AdminMetric icon={Zap} label="Enabled modules" value={`${enabledModules}/${modules.length}`} detail="Feature visibility under control" tone="amber" />
+          </div>
+        </div>
+        <div className="relative rounded-xl border border-white/10 bg-white/5 p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Completion quality</p>
+              <p className="mt-1 text-sm text-slate-300">Closed work as a share of total tasks</p>
+            </div>
+            <Sparkles className="animate-pulse text-amber-200" size={20} />
+          </div>
+          <DonutChart value={completionRate} label="Closure" />
+          <div className="mt-5 grid grid-cols-3 gap-2 text-center text-xs">
+            <div className="rounded-lg bg-white/5 p-2"><p className="font-semibold text-white">{activeTasks.length}</p><p className="text-slate-400">Active</p></div>
+            <div className="rounded-lg bg-white/5 p-2"><p className="font-semibold text-white">{reviewTasks.length}</p><p className="text-slate-400">Review</p></div>
+            <div className="rounded-lg bg-white/5 p-2"><p className="font-semibold text-white">{closedTasks.length}</p><p className="text-slate-400">Closed</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {!owner && <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Firm-level admin view active. Platform-wide controls require Platform Owner access.</div>}
+
+    <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+      <AdminPanel title="Operational Analytics" subtitle="Live health indicators for task governance and closure quality." icon={TrendingUp}>
+        <div className="grid gap-3 md:grid-cols-2">
+          <ReportPanel title="Clients" value={String(clients.length)} detail="Client master records" icon={Building2} />
+          <ReportPanel title="Tasks" value={String(tasks.length)} detail="All workflow statuses" icon={ClipboardList} />
+          <ReportPanel title="Review queue" value={String(reviewTasks.length)} detail="Awaiting reviewer action" icon={Eye} />
+          <ReportPanel title="Overdue" value={String(overdueTasks.length)} detail="Needs owner attention" icon={AlertTriangle} />
+        </div>
+        <div className="mt-5 space-y-3">
+          {statuses.map((status) => <StatusBarRow key={status} count={tasks.filter((task) => task.status === status).length} status={status} total={Math.max(tasks.length, 1)} />)}
+        </div>
+      </AdminPanel>
+
+      <AdminPanel title="User Administration" subtitle="Role visibility, access readiness, and quick owner actions." icon={UserCog}>
+        <div className="flex flex-wrap gap-2">
+          <button className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45" disabled={!owner && user.firmRole !== "Firm Admin"} onClick={openTeam} title="Add a new user profile" type="button"><UserPlus size={16} /> Add user</button>
+          <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700" disabled title="View-as mode is prepared for the next admin layer." type="button"><Eye size={16} /> View-as</button>
+          <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700" disabled title="Exports are planned for firm owner reporting." type="button"><FileDown size={16} /> Export</button>
+        </div>
+        <div className="mt-5 space-y-3">
+          {roleRows.map((row) => <div key={row.role} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2" title={`${row.role}: ${row.users} user${row.users === 1 ? "" : "s"}`}>
+            <div className="flex items-center gap-3"><RoleBadge role={row.role} /><span className="text-sm font-semibold text-slate-800">{row.role}</span></div>
+            <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">{row.users}</span>
+          </div>)}
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {team.map((member) => <div key={member.id} className="rounded-lg border border-slate-100 bg-white p-3" title="User profile and access status">
+            <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-slate-950">{member.name}</p><p className="mt-1 text-xs text-slate-500">{member.email}</p></div><span className={(member.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600") + " rounded-full px-2 py-1 text-xs font-semibold"}>{member.isActive ? "Active" : "Inactive"}</span></div>
+            <p className="mt-3 text-xs font-medium text-slate-500">{member.platformRole === "Platform Owner" ? "Platform Owner" : member.firmRole} - {member.lastActive}</p>
+          </div>)}
+        </div>
+      </AdminPanel>
+    </section>
+
+    <section className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+      <AdminPanel title="Module Governance" subtitle="Turn advanced modules on only when the firm is ready to use them." icon={SlidersHorizontal}>
+        <div className="grid gap-3 md:grid-cols-2">
+          {modules.map((item) => <ModuleControlCard key={item.id} item={item} owner={owner} toggleModule={toggleModule} />)}
+        </div>
+      </AdminPanel>
+
+      <AdminPanel title="Subscription and Controls" subtitle="Plan position, locked owner tools, and governance readiness." icon={KeyRound}>
+        <div className="grid gap-3 md:grid-cols-3">
+          {plans.map((plan) => <div key={plan.id} className={(plan.price === "Active" ? "border-slate-900 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-900") + " rounded-lg border p-4 shadow-sm"} title={`${plan.name}: ${plan.limits}`}>
+            <div className="flex items-center justify-between"><p className="font-semibold">{plan.name}</p><span className={(plan.price === "Active" ? "bg-amber-200 text-slate-950" : "bg-slate-100 text-slate-600") + " rounded-full px-2 py-1 text-xs font-semibold"}>{plan.price}</span></div>
+            <p className={(plan.price === "Active" ? "text-slate-300" : "text-slate-500") + " mt-3 text-xs leading-5"}>{plan.limits}</p>
+          </div>)}
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <OwnerTool icon={Eye} label="View-as mode" text="Controlled role visibility with audit logging." />
+          <OwnerTool icon={FileDown} label="Data exports" text="Firm, user, task, client, and activity export controls." />
+          <OwnerTool icon={LockKeyhole} label="Audit tools" text="Sensitive actions create activity entries." />
+          <OwnerTool icon={Mail} label="Email reminders" text="Daily summary and overdue alert controls." />
+        </div>
+      </AdminPanel>
+    </section>
+
+    <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+      <AdminPanel title="Activity Monitor" subtitle="Chronological control log for sensitive and operational actions." icon={Activity}>
+        <ActivityTimeline activity={activity} team={team} />
+      </AdminPanel>
+      <AdminPanel title="Release Readiness" subtitle="Simple governance checklist for first client deployment." icon={Settings}>
+        <div className="space-y-3">
+          <ActionTile done label="Core task tracking" text="Create, assign, review, and close tasks." />
+          <ActionTile done label="Client master" text="Minimum client record before task creation." />
+          <ActionTile done={modules.find((module) => module.id === "m_reports")?.enabled ?? false} label="Reports visibility" text="Analytics visible to admin and manager roles." />
+          <ActionTile done={owner} label="Owner control" text={owner ? "Platform owner controls available." : "Sign in as Platform Owner for full controls."} />
+        </div>
+      </AdminPanel>
+    </section>
+  </div>;
+}
+
+function AdminMetric({ detail, icon: Icon, label, tone, value }: { detail: string; icon: typeof Gauge; label: string; tone: "emerald" | "sky" | "amber"; value: string }) {
+  const toneClass = {
+    emerald: "border-emerald-200/20 bg-emerald-200/10 text-emerald-100",
+    sky: "border-sky-200/20 bg-sky-200/10 text-sky-100",
+    amber: "border-amber-200/20 bg-amber-200/10 text-amber-100",
+  }[tone];
+  return <div className={`min-w-0 rounded-lg border p-4 ${toneClass}`} title={`${label}: ${detail}`}>
+    <div className="flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-[0.14em] opacity-80">{label}</p><Icon size={18} /></div>
+    <p className="mt-3 text-3xl font-semibold text-white">{value}</p>
+    <p className="mt-1 text-xs leading-5 opacity-80">{detail}</p>
+  </div>;
+}
+
+function AdminPanel({ children, icon: Icon, subtitle, title }: { children: React.ReactNode; icon: typeof ShieldCheck; subtitle: string; title: string }) {
+  return <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm" title={subtitle}>
+    <div className="flex items-start justify-between gap-3">
+      <div><h2 className="text-base font-semibold text-slate-950">{title}</h2><p className="mt-1 text-sm leading-5 text-slate-500">{subtitle}</p></div>
+      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-white"><Icon size={19} /></span>
+    </div>
+    <div className="mt-5">{children}</div>
+  </section>;
+}
+
+function DonutChart({ label, value }: { label: string; value: number }) {
+  const clamped = Math.max(0, Math.min(100, value));
+  return <div className="mt-6 flex items-center justify-center">
+    <div className="relative flex h-44 w-44 items-center justify-center rounded-full transition-transform duration-500 hover:scale-[1.03]" style={{ background: `conic-gradient(#fcd34d ${clamped * 3.6}deg, rgba(255,255,255,0.1) 0deg)` }} title={`${label}: ${clamped}%`}>
+      <div className="flex h-32 w-32 flex-col items-center justify-center rounded-full bg-[#101623] text-center shadow-inner shadow-black/40">
+        <p className="text-4xl font-semibold text-white">{clamped}%</p>
+        <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</p>
+      </div>
+    </div>
+  </div>;
+}
+
+function StatusBarRow({ count, status, total }: { count: number; status: TaskStatus; total: number }) {
+  const percent = Math.round((count / total) * 100);
+  return <div title={`${status}: ${count} task${count === 1 ? "" : "s"}`}>
+    <div className="flex items-center justify-between text-xs"><span className="font-semibold text-slate-700">{status}</span><span className="text-slate-500">{count}</span></div>
+    <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-gradient-to-r from-sky-500 via-violet-500 to-emerald-500 transition-all duration-700" style={{ width: `${percent}%` }} /></div>
+  </div>;
+}
+
+function RoleBadge({ role }: { role: string }) {
+  const tone = role === "Platform Owner" ? "bg-amber-100 text-amber-800" : role === "Firm Admin" ? "bg-sky-100 text-sky-800" : role === "Partner" ? "bg-violet-100 text-violet-800" : role === "Manager" ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700";
+  return <span className={`${tone} inline-flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold`}>{role.slice(0, 1)}</span>;
+}
+
+function ModuleControlCard({ item, owner, toggleModule }: { item: ModuleFlag; owner: boolean; toggleModule: (id: string) => void }) {
+  return <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 transition hover:border-slate-200 hover:bg-white" title={`${item.name}: ${item.visibility}`}>
+    <div className="flex items-start justify-between gap-3">
+      <div><p className="text-sm font-semibold text-slate-900">{item.name}</p><p className="mt-1 text-xs text-slate-500">{item.key}</p></div>
+      <button className={(item.enabled ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700") + " rounded-full px-3 py-1 text-xs font-semibold transition hover:scale-105 disabled:hover:scale-100"} disabled={!owner} onClick={() => toggleModule(item.id)} title={owner ? `Toggle ${item.name}` : "Only Platform Owner can change module access"} type="button">{item.enabled ? "Enabled" : "Hidden"}</button>
+    </div>
+    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white"><div className={(item.enabled ? "w-full bg-emerald-500" : "w-1/3 bg-slate-300") + " h-full rounded-full transition-all duration-500"} /></div>
+  </div>;
+}
+
+function ActivityTimeline({ activity, team }: { activity: ActivityEvent[]; team: TeamMember[] }) {
+  if (activity.length === 0) return <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">No activity yet. User actions, task movements, and module changes will appear here automatically.</div>;
+  return <div className="space-y-3">
+    {activity.slice(0, 8).map((event) => <div key={event.id} className="relative rounded-lg border border-slate-100 bg-slate-50 p-3 pl-10 text-sm" title={`${event.action}: ${event.detail}`}>
+      <span className="absolute left-3 top-4 h-3 w-3 rounded-full bg-emerald-500 ring-4 ring-emerald-100" />
+      <p className="font-semibold text-slate-900">{event.action}</p>
+      <p className="mt-1 text-slate-600">{event.detail}</p>
+      <p className="mt-1 text-xs text-slate-500">{userName(team, event.actorId)} - {event.createdAt}</p>
+    </div>)}
+  </div>;
+}
+
+function ActionTile({ done, label, text }: { done: boolean; label: string; text: string }) {
+  return <div className={(done ? "border-emerald-100 bg-emerald-50" : "border-amber-100 bg-amber-50") + " flex items-start gap-3 rounded-lg border p-3"} title={text}>
+    <span className={(done ? "bg-emerald-600 text-white" : "bg-amber-500 text-white") + " mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full"}>{done ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}</span>
+    <div><p className={(done ? "text-emerald-950" : "text-amber-950") + " text-sm font-semibold"}>{label}</p><p className={(done ? "text-emerald-700" : "text-amber-800") + " mt-1 text-xs leading-5"}>{text}</p></div>
+  </div>;
 }
 
 function Panel({ action, children, onAction, subtitle, title }: { action: string; children: React.ReactNode; onAction: () => void; subtitle: string; title: string }) {
