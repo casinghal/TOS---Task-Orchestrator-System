@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const root = process.cwd();
-const ignoredDirs = new Set([".git", ".next", "node_modules"]);
+const ignoredDirs = new Set([".git", ".next", "node_modules", "out"]);
 const ignoredFiles = new Set(["package-lock.json"]);
 const scannedExtensions = new Set([".js", ".jsx", ".mjs", ".ts", ".tsx", ".json", ".md", ".toml", ".prisma"]);
 
@@ -21,6 +21,10 @@ const forbiddenPatterns = [
   /Priya Nair/i,
   /Aman Verma/i,
   /@avantage\.example/i,
+  /@tams-tkg\.local/i,
+  /@tos\.local/i,
+  /Select your profile/i,
+  /User profile/i,
 ];
 
 function extensionOf(file) {

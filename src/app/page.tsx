@@ -56,8 +56,9 @@ type ViewMode = "list" | "kanban";
 type Modal = "task" | "client" | "team" | null;
 
 const todayIso = "2026-04-26";
-const workspaceStorageKey = "tos-tams-tkg-live-v2";
-const legacyStorageKeys = ["tos-tams-tkg-live-v1"];
+const workspaceStorageKey = "tos-tams-tkg-live-v3";
+const legacyStorageKeys = ["tos-tams-tkg-live-v1", "tos-tams-tkg-live-v2"];
+const tamsEmailDomain = "@tams.co.in";
 const creatorRoles: FirmRole[] = ["Firm Admin", "Partner", "Manager"];
 const loginTips = [
   "Create the client first, then create the task. This keeps every action traceable till closure.",
@@ -198,9 +199,9 @@ export default function Home() {
     if (!user) return;
     const form = new FormData(event.currentTarget);
     const name = String(form.get("name") || "").trim();
-    const email = String(form.get("email") || "").trim();
+    const email = normalizeEmail(String(form.get("email") || "").trim());
     const firmRole = String(form.get("firmRole") || "Article/Staff") as FirmRole;
-    if (!name || !email) return;
+    if (!name || !isTamsEmail(email)) return;
     const nextMember: TeamMember = { id: "u_" + Date.now(), name, email, firmRole, role: firmRole, platformRole: "Standard", lastActive: "Invited", isActive: true };
     setTeamList((current) => [nextMember, ...current]);
     log(user.id, "Created user", "User", name + " - " + firmRole);
@@ -247,12 +248,23 @@ export default function Home() {
     log(user.id, "Changed module access", "ModuleFlag", item?.name ?? "Module");
   }
 
-  function login(userId: string) {
-    setSessionUserId(userId);
+  async function login(email: string, password: string) {
+    const normalizedEmail = normalizeEmail(email);
+    if (!isTamsEmail(normalizedEmail)) return { ok: false, message: "Use your TAMS email ID ending with @tams.co.in." };
+    if (password.length < 8) return { ok: false, message: "Password must be at least 8 characters." };
+    const member = teamList.find((item) => normalizeEmail(item.email) === normalizedEmail && item.isActive);
+    if (!member) return { ok: false, message: "No active TAMS user found for this email ID." };
+    const digest = await digestPassword(normalizedEmail, password);
+    if (member.passwordDigest && member.passwordDigest !== digest) return { ok: false, message: "Password does not match this TAMS user." };
+    if (!member.passwordDigest) {
+      setTeamList((current) => current.map((item) => item.id === member.id ? { ...item, passwordDigest: digest, lastActive: "Today" } : item));
+    }
+    setSessionUserId(member.id);
     setActiveSection("tasks");
     setSelectedTaskId(null);
     setModal(null);
     setLoginTip(loginTips[Math.floor(Math.random() * loginTips.length)]);
+    return { ok: true };
   }
 
   function logout() {
@@ -262,7 +274,7 @@ export default function Home() {
     setModal(null);
   }
 
-  if (!user) return <LoginScreen onLogin={login} team={teamList} />;
+  if (!user) return <LoginScreen onLogin={login} />;
 
   return (
     <main className="min-h-screen overflow-x-hidden text-slate-900">
@@ -288,10 +300,28 @@ export default function Home() {
   );
 }
 
-function LoginScreen({ onLogin, team }: { onLogin: (id: string) => void; team: TeamMember[] }) {
-  const [id, setId] = useState(team[0]?.id ?? "");
-  const selected = team.find((member) => member.id === id);
+function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) => Promise<{ ok: boolean; message?: string }> }) {
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const dailyTip = loginTips[new Date().getDate() % loginTips.length];
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email") || "");
+    const password = String(form.get("password") || "");
+    setError("");
+    setIsSubmitting(true);
+    try {
+      const result = await onLogin(email, password);
+      if (!result.ok) setError(result.message ?? "Unable to sign in.");
+    } catch {
+      setError("Unable to verify access. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return <main className="flex min-h-screen items-center justify-center bg-[#070a12] p-4 text-slate-100">
     <section className="grid w-full max-w-6xl overflow-hidden rounded-xl border border-amber-200/15 bg-[#101623] shadow-2xl shadow-black/50 md:grid-cols-[1.08fr_0.92fr]">
       <div className="relative overflow-hidden bg-[#0b1020] p-8 text-white md:p-12">
@@ -306,16 +336,18 @@ function LoginScreen({ onLogin, team }: { onLogin: (id: string) => void; team: T
           <p className="mt-2 text-sm leading-6 text-slate-200">{dailyTip}</p>
         </div>
       </div>
-      <div className="bg-[#111827] p-6 md:p-10">
+      <form className="bg-[#111827] p-6 md:p-10" noValidate onSubmit={submit}>
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-200/80">Secure workspace access</p>
-        <h2 className="mt-3 text-2xl font-semibold text-white">Select your profile</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-400">Enter with the access level assigned to your role. Daily task features stay focused and uncluttered.</p>
-        <label className="mt-6 block text-sm font-medium text-slate-200" title="Choose the role profile to enter the workspace.">User profile</label>
-        <select className="mt-2 w-full rounded-lg border border-slate-600 bg-[#0b1020] px-3 py-3 text-sm text-white outline-none focus:border-amber-300 focus:ring-4 focus:ring-amber-200/10" value={id} onChange={(event) => setId(event.target.value)} title="Select your workspace profile">{team.map((member) => <option key={member.id} value={member.id}>{member.name} - {member.platformRole === "Platform Owner" ? "Platform Owner" : member.firmRole}</option>)}</select>
-        {selected && <div className="mt-4 rounded-lg border border-slate-700 bg-slate-950/35 p-4" title="This card confirms the role and access profile being used for this session."><p className="font-semibold text-white">{selected.name}</p><p className="mt-1 text-sm text-slate-400">{selected.email}</p><p className="mt-3 inline-flex rounded-full border border-amber-200/20 bg-amber-200/10 px-2.5 py-1 text-xs font-semibold text-amber-100">{selected.platformRole === "Platform Owner" ? "Platform Owner" : selected.firmRole}</p></div>}
-        <p className="mt-5 rounded-lg border border-slate-700 bg-slate-950/25 p-3 text-xs leading-5 text-slate-400">Guidance: Start by adding clients, then create tasks against those clients. Required fields are kept minimal so the team can begin quickly.</p>
-        <button className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-amber-300 px-4 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-950/20 hover:bg-amber-200" onClick={() => onLogin(id)} title="Enter the TAMS-TKG task workspace" type="button">Enter workspace <ShieldCheck size={18} /></button>
-      </div>
+        <h2 className="mt-3 text-2xl font-semibold text-white">Sign in with TAMS email</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-400">Use your official Google Workspace email ID and your workspace password. Access is restricted to active TAMS users.</p>
+        <label className="mt-6 block text-sm font-medium text-slate-200" title="Only tams.co.in email IDs are accepted.">TAMS email ID</label>
+        <input className="mt-2 w-full rounded-lg border border-slate-600 bg-[#0b1020] px-3 py-3 text-sm text-white outline-none transition focus:border-amber-300 focus:ring-4 focus:ring-amber-200/10" inputMode="email" name="email" placeholder="name@tams.co.in" required title="Enter your official @tams.co.in email ID" type="email" />
+        <label className="mt-4 block text-sm font-medium text-slate-200" title="Use the password created for this workspace.">Password</label>
+        <input className="mt-2 w-full rounded-lg border border-slate-600 bg-[#0b1020] px-3 py-3 text-sm text-white outline-none transition focus:border-amber-300 focus:ring-4 focus:ring-amber-200/10" minLength={8} name="password" placeholder="Enter password" required title="Enter your workspace password" type="password" />
+        {error && <div className="mt-4 rounded-lg border border-red-300/30 bg-red-500/10 p-3 text-sm leading-5 text-red-100" role="alert">{error}</div>}
+        <p className="mt-5 rounded-lg border border-slate-700 bg-slate-950/25 p-3 text-xs leading-5 text-slate-400">Guidance: If this is your first sign-in, the password you enter will become your workspace password for this TAMS profile.</p>
+        <button className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-amber-300 px-4 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-950/20 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60" disabled={isSubmitting} title="Enter the TAMS-TKG task workspace" type="submit">{isSubmitting ? "Checking access..." : "Enter workspace"} <ShieldCheck size={18} /></button>
+      </form>
     </section>
   </main>;
 }
@@ -447,7 +479,7 @@ function AdminView({ activity, clients, modules, openTeam, tasks, team, toggleMo
 
       <AdminPanel title="User Administration" subtitle="Role visibility, access readiness, and quick owner actions." icon={UserCog}>
         <div className="flex flex-wrap gap-2">
-          <button className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45" disabled={!owner && user.firmRole !== "Firm Admin"} onClick={openTeam} title="Add a new user profile" type="button"><UserPlus size={16} /> Add user</button>
+          <button className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45" disabled={!owner && user.firmRole !== "Firm Admin"} onClick={openTeam} title="Add a new team member" type="button"><UserPlus size={16} /> Add user</button>
           <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700" disabled title="View-as mode is prepared for the next admin layer." type="button"><Eye size={16} /> View-as</button>
           <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700" disabled title="Exports are planned for firm owner reporting." type="button"><FileDown size={16} /> Export</button>
         </div>
@@ -458,7 +490,7 @@ function AdminView({ activity, clients, modules, openTeam, tasks, team, toggleMo
           </div>)}
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          {team.map((member) => <div key={member.id} className="rounded-lg border border-slate-100 bg-white p-3" title="User profile and access status">
+          {team.map((member) => <div key={member.id} className="rounded-lg border border-slate-100 bg-white p-3" title="Team access and status">
             <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-slate-950">{member.name}</p><p className="mt-1 text-xs text-slate-500">{member.email}</p></div><span className={(member.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600") + " rounded-full px-2 py-1 text-xs font-semibold"}>{member.isActive ? "Active" : "Inactive"}</span></div>
             <p className="mt-3 text-xs font-medium text-slate-500">{member.platformRole === "Platform Owner" ? "Platform Owner" : member.firmRole} - {member.lastActive}</p>
           </div>)}
@@ -604,7 +636,7 @@ function ClientModal({ close, submit }: { close: () => void; submit: (event: For
 }
 
 function TeamModal({ close, submit }: { close: () => void; submit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <ModalFrame title="Add team member" subtitle="Simple role labels first; custom roles can come later." close={close}><form className="space-y-4" onSubmit={submit}><Field label="Name" name="name" required /><Field label="Email" name="email" required type="email" /><Select label="Role" name="firmRole"><option>Firm Admin</option><option>Partner</option><option>Manager</option><option>Article/Staff</option></Select><Actions close={close} label="Add User" /></form></ModalFrame>;
+  return <ModalFrame title="Add team member" subtitle="Use official TAMS email IDs only. Password is created by the user on first sign-in." close={close}><form className="space-y-4" onSubmit={submit}><Field label="Name" name="name" required /><Field label="TAMS email" name="email" pattern="^[^\\s@]+@tams\\.co\\.in$" placeholder="name@tams.co.in" required type="email" /><Select label="Role" name="firmRole"><option>Firm Admin</option><option>Partner</option><option>Manager</option><option>Article/Staff</option></Select><Actions close={close} label="Add User" /></form></ModalFrame>;
 }
 
 function TaskDrawer({ addNote, clients, close, moveTask, task, team, user }: { addNote: (taskId: string, note: string) => void; clients: Client[]; close: () => void; moveTask: (taskId: string, status: TaskStatus, remarks?: string) => void; task: Task; team: TeamMember[]; user: TeamMember }) {
@@ -620,8 +652,8 @@ function ModalFrame({ children, close, subtitle, title }: { children: React.Reac
   return <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/40 p-4 sm:items-center"><div className="flex max-h-[calc(100vh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"><div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4"><div><h2 className="text-lg font-semibold text-slate-950">{title}</h2><p className="text-sm text-slate-500">{subtitle}</p></div><button aria-label="Close modal" className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" onClick={close} type="button"><X size={18} /></button></div><div className="overflow-y-auto p-5">{children}</div></div></div>;
 }
 
-function Field({ label, name, required, type = "text" }: { label: string; name: string; required?: boolean; type?: string }) {
-  return <label className="block" title={required ? `${label} is required.` : `${label} is optional.`}><span className="text-sm font-medium text-slate-700">{label}{required ? " *" : ""}</span><input className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" name={name} placeholder={required ? "Required" : "Optional"} required={required} title={required ? `${label} is required.` : `${label} is optional.`} type={type} /></label>;
+function Field({ label, name, pattern, placeholder, required, type = "text" }: { label: string; name: string; pattern?: string; placeholder?: string; required?: boolean; type?: string }) {
+  return <label className="block" title={required ? `${label} is required.` : `${label} is optional.`}><span className="text-sm font-medium text-slate-700">{label}{required ? " *" : ""}</span><input className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" name={name} pattern={pattern} placeholder={placeholder ?? (required ? "Required" : "Optional")} required={required} title={required ? `${label} is required.` : `${label} is optional.`} type={type} /></label>;
 }
 
 function Select({ children, label, name, required }: { children: React.ReactNode; label: string; name: string; required?: boolean }) {
@@ -666,4 +698,29 @@ function dueState(task: Task) {
 function textOrUndefined(form: FormData, key: string) {
   const value = String(form.get(key) || "").trim();
   return value || undefined;
+}
+
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+function isTamsEmail(email: string) {
+  const normalized = normalizeEmail(email);
+  return /^[^\s@]+@[^\s@]+$/.test(normalized) && normalized.endsWith(tamsEmailDomain);
+}
+
+async function digestPassword(email: string, password: string) {
+  const bytes = new TextEncoder().encode(`${normalizeEmail(email)}:${password}`);
+  if (!crypto?.subtle) return fallbackDigest(bytes);
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(hash)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function fallbackDigest(bytes: Uint8Array) {
+  let hash = 2166136261;
+  for (const byte of bytes) {
+    hash ^= byte;
+    hash = Math.imul(hash, 16777619);
+  }
+  return `local-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }

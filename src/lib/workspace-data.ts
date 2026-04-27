@@ -13,6 +13,7 @@ export type TeamMember = {
   id: string;
   name: string;
   email: string;
+  passwordDigest?: string;
   firmRole: FirmRole;
   role: FirmRole;
   platformRole: PlatformRole;
@@ -94,7 +95,7 @@ export const initialTeamMembers: TeamMember[] = [
   {
     id: "u_owner",
     name: "Platform Owner",
-    email: "owner@tos.local",
+    email: "owner@tams.co.in",
     firmRole: "Firm Admin",
     role: "Firm Admin",
     platformRole: "Platform Owner",
@@ -104,7 +105,7 @@ export const initialTeamMembers: TeamMember[] = [
   {
     id: "u_admin",
     name: "Firm Admin",
-    email: "admin@tams-tkg.local",
+    email: "admin@tams.co.in",
     firmRole: "Firm Admin",
     role: "Firm Admin",
     platformRole: "Standard",
@@ -114,7 +115,7 @@ export const initialTeamMembers: TeamMember[] = [
   {
     id: "u_partner",
     name: "Partner",
-    email: "partner@tams-tkg.local",
+    email: "partner@tams.co.in",
     firmRole: "Partner",
     role: "Partner",
     platformRole: "Standard",
@@ -124,7 +125,7 @@ export const initialTeamMembers: TeamMember[] = [
   {
     id: "u_manager",
     name: "Manager",
-    email: "manager@tams-tkg.local",
+    email: "manager@tams.co.in",
     firmRole: "Manager",
     role: "Manager",
     platformRole: "Standard",
@@ -134,7 +135,7 @@ export const initialTeamMembers: TeamMember[] = [
   {
     id: "u_staff",
     name: "Article/Staff",
-    email: "staff@tams-tkg.local",
+    email: "staff@tams.co.in",
     firmRole: "Article/Staff",
     role: "Article/Staff",
     platformRole: "Standard",
