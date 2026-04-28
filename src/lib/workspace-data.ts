@@ -108,7 +108,8 @@ export const initialTeamMembers: TeamMember[] = [
   {
     id: "u_owner",
     name: "Platform Owner",
-    email: "owner@tams.co.in",
+    email: "singhal.accuron@gmail.com",
+    passwordDigest: "d83123f88ec1dffa28f8d9b3eba071d4304bef30424caddd2cd82d2a0523cdc4",
     firmRole: "Firm Admin",
     role: "Firm Admin",
     platformRole: "Platform Owner",

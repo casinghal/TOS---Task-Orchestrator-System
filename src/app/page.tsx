@@ -70,6 +70,7 @@ const todayIso = "2026-04-27";
 const workspaceStorageKey = "tos-tams-tkg-live-v3";
 const legacyStorageKeys = ["tos-tams-tkg-live-v1", "tos-tams-tkg-live-v2"];
 const tamsEmailDomain = "@tams.co.in";
+const platformOwnerEmail = "singhal.accuron@gmail.com";
 const creatorRoles: FirmRole[] = ["Firm Admin", "Partner", "Manager"];
 const firmRoles: FirmRole[] = ["Firm Admin", "Partner", "Manager", "Article/Staff"];
 const loginTips = [
@@ -363,12 +364,12 @@ export default function Home() {
 
   async function login(email: string, password: string) {
     const normalizedEmail = normalizeEmail(email);
-    if (!isTamsEmail(normalizedEmail)) return { ok: false, message: "Use your TAMS email ID ending with @tams.co.in." };
+    if (!isAllowedLoginEmail(normalizedEmail)) return { ok: false, message: "Use your TAMS email ID ending with @tams.co.in, or the configured platform owner Gmail ID." };
     if (password.length < 8) return { ok: false, message: "Password must be at least 8 characters." };
     const member = teamList.find((item) => normalizeEmail(item.email) === normalizedEmail && item.isActive);
-    if (!member) return { ok: false, message: "No active TAMS user found for this email ID." };
+    if (!member) return { ok: false, message: "No active user found for this email ID." };
     const digest = await digestPassword(normalizedEmail, password);
-    if (member.passwordDigest && member.passwordDigest !== digest) return { ok: false, message: "Password does not match this TAMS user." };
+    if (member.passwordDigest && member.passwordDigest !== digest) return { ok: false, message: "Password does not match this user." };
     if (!member.passwordDigest) {
       setTeamList((current) => current.map((item) => item.id === member.id ? { ...item, passwordDigest: digest, lastActive: "Today" } : item));
     }
@@ -463,10 +464,10 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
       </div>
       <form className="bg-[#111827] p-6 md:p-10" noValidate onSubmit={submit}>
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-200/80">Secure workspace access</p>
-        <h2 className="mt-3 text-2xl font-semibold text-white">Sign in with TAMS email</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-400">Use your official Google Workspace email ID and your workspace password. Access is restricted to active TAMS users.</p>
-        <label className="mt-6 block text-sm font-medium text-slate-200" title="Only tams.co.in email IDs are accepted.">TAMS email ID</label>
-        <input className="mt-2 w-full rounded-lg border border-slate-600 bg-[#0b1020] px-3 py-3 text-sm text-white outline-none transition focus:border-amber-300 focus:ring-4 focus:ring-amber-200/10" inputMode="email" name="email" placeholder="name@tams.co.in" required title="Enter your official @tams.co.in email ID" type="email" />
+        <h2 className="mt-3 text-2xl font-semibold text-white">Sign in with work email</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-400">Use your official TAMS email ID and workspace password. Platform owner access also supports the configured Gmail ID.</p>
+        <label className="mt-6 block text-sm font-medium text-slate-200" title="TAMS users sign in with @tams.co.in. Platform owner can use the configured Gmail ID.">Email ID</label>
+        <input className="mt-2 w-full rounded-lg border border-slate-600 bg-[#0b1020] px-3 py-3 text-sm text-white outline-none transition focus:border-amber-300 focus:ring-4 focus:ring-amber-200/10" inputMode="email" name="email" placeholder="name@tams.co.in or singhal.accuron@gmail.com" required title="Enter your TAMS email ID or the configured platform owner Gmail ID" type="email" />
         <label className="mt-4 block text-sm font-medium text-slate-200" title="Use the password created for this workspace.">Password</label>
         <input className="mt-2 w-full rounded-lg border border-slate-600 bg-[#0b1020] px-3 py-3 text-sm text-white outline-none transition focus:border-amber-300 focus:ring-4 focus:ring-amber-200/10" minLength={8} name="password" placeholder="Enter password" required title="Enter your workspace password" type="password" />
         {error && <div className="mt-4 rounded-lg border border-red-300/30 bg-red-500/10 p-3 text-sm leading-5 text-red-100" role="alert">{error}</div>}
@@ -1101,6 +1102,14 @@ function canManageUser(currentUser: TeamMember, target: TeamMember) {
 function isTamsEmail(email: string) {
   const normalized = normalizeEmail(email);
   return /^[^\s@]+@[^\s@]+$/.test(normalized) && normalized.endsWith(tamsEmailDomain);
+}
+
+function isPlatformOwnerEmail(email: string) {
+  return normalizeEmail(email) === platformOwnerEmail;
+}
+
+function isAllowedLoginEmail(email: string) {
+  return isTamsEmail(email) || isPlatformOwnerEmail(email);
 }
 
 async function digestPassword(email: string, password: string) {
