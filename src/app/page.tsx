@@ -45,6 +45,7 @@ import {
   type ActivityEvent,
   type Assignment,
   type Client,
+  type FirmProfile,
   type FirmRole,
   type ModuleFlag,
   type Task,
@@ -52,7 +53,7 @@ import {
   type TeamMember,
 } from "@/lib/workspace-data";
 
-type Section = "dashboard" | "tasks" | "assignments" | "projectReview" | "clients" | "team" | "reports" | "admin";
+type Section = "dashboard" | "tasks" | "assignments" | "projectReview" | "clients" | "team" | "reports" | "firmSetup" | "admin";
 type ViewMode = "list" | "kanban";
 type Modal = "task" | "assignment" | "client" | "team" | null;
 type MemberActions = {
@@ -67,9 +68,8 @@ type WorkMapActions = {
 };
 
 const todayIso = "2026-04-27";
-const workspaceStorageKey = "tos-tams-tkg-live-v3";
-const legacyStorageKeys = ["tos-tams-tkg-live-v1", "tos-tams-tkg-live-v2"];
-const tamsEmailDomain = "@tams.co.in";
+const workspaceStorageKey = "practiceiq-live-v1";
+const legacyStorageKeys = ["tos-tams-tkg-live-v1", "tos-tams-tkg-live-v2", "tos-tams-tkg-live-v3"];
 const platformOwnerEmail = "singhal.accuron@gmail.com";
 const creatorRoles: FirmRole[] = ["Firm Admin", "Partner", "Manager"];
 const firmRoles: FirmRole[] = ["Firm Admin", "Partner", "Manager", "Article/Staff"];
@@ -83,12 +83,13 @@ const loginTips = [
 
 const navItems = [
   { id: "dashboard" as const, label: "Dashboard", icon: Gauge },
-  { id: "tasks" as const, label: "My Tasks", icon: ClipboardList },
-  { id: "assignments" as const, label: "Assignments", icon: LayoutGrid },
   { id: "projectReview" as const, label: "Project Review", icon: Gauge },
+  { id: "assignments" as const, label: "Assignments", icon: LayoutGrid },
+  { id: "tasks" as const, label: "Task Queue", icon: ClipboardList },
   { id: "clients" as const, label: "Clients", icon: Building2 },
   { id: "team" as const, label: "Team", icon: Users },
   { id: "reports" as const, label: "Reports", icon: BarChart3 },
+  { id: "firmSetup" as const, label: "Firm Setup", icon: Settings },
   { id: "admin" as const, label: "Admin", icon: ShieldCheck },
 ];
 
@@ -120,6 +121,8 @@ export default function Home() {
   const [taskList, setTaskList] = useState<Task[]>(seedTasks);
   const [clientList, setClientList] = useState<Client[]>(seedClients);
   const [teamList, setTeamList] = useState<TeamMember[]>(seedTeam);
+  const [firmProfile, setFirmProfile] = useState<FirmProfile>(firm);
+  const [firmDirectory, setFirmDirectory] = useState<FirmProfile[]>([firm]);
   const [activity, setActivity] = useState<ActivityEvent[]>(initialActivityEvents);
   const [modules, setModules] = useState<ModuleFlag[]>(initialModuleFlags);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -130,11 +133,22 @@ export default function Home() {
       legacyStorageKeys.forEach((key) => window.localStorage.removeItem(key));
       const raw = window.localStorage.getItem(workspaceStorageKey);
       if (raw) {
-        const saved = JSON.parse(raw) as { assignments?: Assignment[]; tasks?: Task[]; clients?: Client[]; team?: TeamMember[]; activity?: ActivityEvent[]; modules?: ModuleFlag[] };
+        const saved = JSON.parse(raw) as {
+          assignments?: Assignment[];
+          tasks?: Task[];
+          clients?: Client[];
+          team?: TeamMember[];
+          firm?: FirmProfile;
+          firms?: FirmProfile[];
+          activity?: ActivityEvent[];
+          modules?: ModuleFlag[];
+        };
         if (saved.assignments) setAssignmentList(saved.assignments);
         if (saved.tasks) setTaskList(saved.tasks);
         if (saved.clients) setClientList(saved.clients);
         if (saved.team) setTeamList(saved.team);
+        if (saved.firm) setFirmProfile(saved.firm);
+        if (saved.firms) setFirmDirectory(saved.firms);
         if (saved.activity) setActivity(saved.activity);
         if (saved.modules) setModules(saved.modules);
       }
@@ -145,8 +159,17 @@ export default function Home() {
 
   useEffect(() => {
     if (!isHydrated) return;
-    window.localStorage.setItem(workspaceStorageKey, JSON.stringify({ assignments: assignmentList, tasks: taskList, clients: clientList, team: teamList, activity, modules }));
-  }, [activity, assignmentList, clientList, isHydrated, modules, taskList, teamList]);
+    window.localStorage.setItem(workspaceStorageKey, JSON.stringify({
+      assignments: assignmentList,
+      tasks: taskList,
+      clients: clientList,
+      team: teamList,
+      firm: firmProfile,
+      firms: firmDirectory,
+      activity,
+      modules,
+    }));
+  }, [activity, assignmentList, clientList, firmDirectory, firmProfile, isHydrated, modules, taskList, teamList]);
 
   const user = teamList.find((member) => member.id === sessionUserId) ?? null;
   const selectedTask = taskList.find((task) => task.id === selectedTaskId) ?? null;
@@ -223,7 +246,7 @@ export default function Home() {
     const name = String(form.get("name") || "").trim();
     const email = normalizeEmail(String(form.get("email") || "").trim());
     const firmRole = String(form.get("firmRole") || "Article/Staff") as FirmRole;
-    if (!name || !isTamsEmail(email)) return;
+    if (!name || !isWorkspaceEmail(email, firmProfile.emailDomain)) return;
     const nextMember: TeamMember = { id: "u_" + Date.now(), name, email, firmRole, role: firmRole, platformRole: "Standard", lastActive: "Invited", isActive: true };
     setTeamList((current) => [nextMember, ...current]);
     log(user.id, "Created user", "User", name + " - " + firmRole);
@@ -368,7 +391,7 @@ export default function Home() {
 
   async function login(email: string, password: string) {
     const normalizedEmail = normalizeEmail(email);
-    if (!isAllowedLoginEmail(normalizedEmail)) return { ok: false, message: "Use your TAMS email ID ending with @tams.co.in, or the configured platform owner Gmail ID." };
+    if (!isAllowedLoginEmail(normalizedEmail, firmProfile.emailDomain)) return { ok: false, message: "Use your registered work email ID for this firm." };
     if (password.length < 8) return { ok: false, message: "Password must be at least 8 characters." };
     const member = teamList.find((item) => normalizeEmail(item.email) === normalizedEmail && item.isActive);
     if (!member) return { ok: false, message: "No active user found for this email ID." };
@@ -400,9 +423,9 @@ export default function Home() {
   return (
     <main className="min-h-screen overflow-x-hidden text-slate-900">
       <div className="flex min-h-screen">
-        <Sidebar active={currentSection} nav={allowedSections} setActive={setActiveSection} user={user} />
+        <Sidebar active={currentSection} firm={firmProfile} nav={allowedSections} setActive={setActiveSection} user={user} />
         <section className="flex min-w-0 flex-1 flex-col">
-          <Header active={currentSection} canCreateTask={canCreateTask} nav={allowedSections} open={setModal} setActive={setActiveSection} user={user} logout={logout} />
+          <Header active={currentSection} canCreateTask={canCreateTask} firm={firmProfile} nav={allowedSections} open={setModal} setActive={setActiveSection} user={user} logout={logout} />
           <div className="p-4 md:p-6">
             <GuidanceNote title="Tip for effective usage" text={loginTip} />
             {currentSection === "dashboard" && <RoleDashboardView assignments={assignmentList} clients={clientList} modules={modules} openAssignment={() => setModal("assignment")} openTask={setSelectedTaskId} setActive={setActiveSection} tasks={taskList} team={teamList} user={user} />}
@@ -412,14 +435,22 @@ export default function Home() {
             {currentSection === "clients" && <ClientsView assignments={assignmentList} clients={clientList} tasks={taskList} open={() => setModal("client")} />}
             {currentSection === "team" && <TeamView actions={memberActions} team={teamList} user={user} open={() => setModal("team")} />}
             {currentSection === "reports" && <ReportsView tasks={taskList} clients={clientList} team={teamList} />}
-            {currentSection === "admin" && <AdminView actions={memberActions} user={user} tasks={taskList} clients={clientList} team={teamList} activity={activity} modules={modules} toggleModule={toggleModule} openTeam={() => setModal("team")} />}
+            {currentSection === "firmSetup" && <FirmSetupView
+              canCreateFirm={user.platformRole === "Platform Owner"}
+              currentFirm={firmProfile}
+              firms={firmDirectory}
+              saveCurrentFirm={setFirmProfile}
+              saveFirms={setFirmDirectory}
+              user={user}
+            />}
+            {currentSection === "admin" && <AdminView actions={memberActions} user={user} tasks={taskList} clients={clientList} team={teamList} activity={activity} modules={modules} toggleModule={toggleModule} openTeam={() => setModal("team")} firm={firmProfile} />}
           </div>
         </section>
       </div>
       {modal === "task" && <TaskModal assignments={assignmentList} clients={clientList} team={teamList} close={() => setModal(null)} submit={createTask} />}
       {modal === "assignment" && <AssignmentModal clients={clientList} close={() => setModal(null)} submit={createAssignment} team={teamList} />}
       {modal === "client" && <ClientModal close={() => setModal(null)} submit={createClient} />}
-      {modal === "team" && <TeamModal close={() => setModal(null)} submit={createMember} />}
+      {modal === "team" && <TeamModal close={() => setModal(null)} submit={createMember} domain={firmProfile.emailDomain} />}
       {selectedTask && <TaskDrawer assignments={assignmentList} task={selectedTask} team={teamList} clients={clientList} user={user} close={() => setSelectedTaskId(null)} addNote={addNote} moveTask={moveTask} />}
     </main>
   );
@@ -447,9 +478,9 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
     }
   }
 
-  return <main className="flex min-h-screen items-center justify-center bg-[#070a12] p-4 text-slate-100">
-    <section className="grid w-full max-w-6xl overflow-hidden rounded-xl border border-amber-200/15 bg-[#101623] shadow-2xl shadow-black/50 md:grid-cols-[1.08fr_0.92fr]">
-      <div className="relative overflow-hidden bg-[#0b1020] p-8 text-white md:p-12">
+  return <main className="font-login flex min-h-screen items-center justify-center bg-[#1e1f24] p-4 text-slate-100">
+    <section className="grid w-full max-w-6xl overflow-hidden rounded-xl border border-amber-200/15 bg-[#2a2c33] shadow-2xl shadow-black/50 md:grid-cols-[1.08fr_0.92fr]">
+      <div className="relative overflow-hidden bg-[#24262d] p-8 text-white md:p-12">
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-300/70 to-transparent" />
         <div className="flex flex-col gap-3 rounded-xl border border-amber-200/20 bg-white/5 p-3 shadow-lg shadow-black/20 sm:flex-row sm:items-center" title="PracticeIQ">
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-amber-300 font-serif text-xl font-bold text-slate-950 shadow-md shadow-amber-950/20">PIQ</div>
@@ -458,7 +489,7 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
             <p className="mt-1 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Clarity. Control. Closure. Confidence.</p>
           </div>
         </div>
-        <p className="mt-8 text-xs font-semibold uppercase tracking-[0.28em] text-amber-200/80">TAMS-TKG workspace</p>
+        <p className="mt-8 text-xs font-semibold uppercase tracking-[0.28em] text-amber-200/80">Secure cloud workspace</p>
         <h1 className="mt-3 max-w-xl text-3xl font-semibold leading-tight md:text-5xl">Disciplined task tracking for a modern CA firm.</h1>
         <p className="mt-5 max-w-xl text-sm leading-6 text-slate-300">Create work, assign responsibility, move it through review, and close with a clear record. The workspace starts simple and grows only when the firm is ready.</p>
         <div className="mt-8 grid gap-3 sm:grid-cols-3"><Mini label="Work" value="Tasks" /><Mini label="Review" value="Closure" /><Mini label="Control" value="Admin" /></div>
@@ -467,17 +498,17 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
           <p className="mt-2 text-sm leading-6 text-slate-200">{dailyTip}</p>
         </div>
       </div>
-      <form className="bg-[#111827] p-6 md:p-10" noValidate onSubmit={submit}>
+      <form className="bg-[#2f3239] p-6 md:p-10" noValidate onSubmit={submit}>
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-200/80">Secure workspace access</p>
         <h2 className="mt-3 text-2xl font-semibold text-white">Sign in with work email</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-400">Use your official TAMS email ID and workspace password. Platform owner access also supports the configured Gmail ID.</p>
-        <label className="mt-6 block text-sm font-medium text-slate-200" title="TAMS users sign in with @tams.co.in. Platform owner can use the configured Gmail ID.">Email ID</label>
-        <input className="mt-2 w-full rounded-lg border border-slate-600 bg-[#0b1020] px-3 py-3 text-sm text-white outline-none transition focus:border-amber-300 focus:ring-4 focus:ring-amber-200/10" inputMode="email" name="email" placeholder="name@tams.co.in or singhal.accuron@gmail.com" required title="Enter your TAMS email ID or the configured platform owner Gmail ID" type="email" />
+        <p className="mt-2 text-sm leading-6 text-slate-300">Use your registered work email ID and workspace password.</p>
+        <label className="mt-6 block text-sm font-medium text-slate-200" title="Use the email ID registered in your workspace profile.">Email ID</label>
+        <input className="mt-2 w-full rounded-lg border border-slate-500 bg-[#24262d] px-3 py-3 text-sm text-white outline-none transition focus:border-amber-300 focus:ring-4 focus:ring-amber-200/10" inputMode="email" name="email" placeholder="name@yourfirm.com" required title="Enter your registered work email ID" type="email" />
         <label className="mt-4 block text-sm font-medium text-slate-200" title="Use the password created for this workspace.">Password</label>
-        <input className="mt-2 w-full rounded-lg border border-slate-600 bg-[#0b1020] px-3 py-3 text-sm text-white outline-none transition focus:border-amber-300 focus:ring-4 focus:ring-amber-200/10" minLength={8} name="password" placeholder="Enter password" required title="Enter your workspace password" type="password" />
+        <input className="mt-2 w-full rounded-lg border border-slate-500 bg-[#24262d] px-3 py-3 text-sm text-white outline-none transition focus:border-amber-300 focus:ring-4 focus:ring-amber-200/10" minLength={8} name="password" placeholder="Enter password" required title="Enter your workspace password" type="password" />
         {error && <div className="mt-4 rounded-lg border border-red-300/30 bg-red-500/10 p-3 text-sm leading-5 text-red-100" role="alert">{error}</div>}
-        <p className="mt-5 rounded-lg border border-slate-700 bg-slate-950/25 p-3 text-xs leading-5 text-slate-400">Guidance: If this is your first sign-in, the password you enter will become your workspace password for this TAMS profile.</p>
-        <button className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-amber-300 px-4 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-950/20 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60" disabled={isSubmitting} title="Enter the TAMS-TKG task workspace" type="submit">{isSubmitting ? "Checking access..." : "Enter workspace"} <ShieldCheck size={18} /></button>
+        <p className="mt-5 rounded-lg border border-slate-600 bg-slate-950/25 p-3 text-xs leading-5 text-slate-300">Guidance: If this is your first sign-in, this password becomes your workspace password for this profile.</p>
+        <button className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-amber-300 px-4 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-950/20 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60" disabled={isSubmitting} title="Enter PracticeIQ workspace" type="submit">{isSubmitting ? "Checking access..." : "Enter workspace"} <ShieldCheck size={18} /></button>
       </form>
     </section>
   </main>;
@@ -514,23 +545,39 @@ function DashTile({ dark = false, label, text, value }: { dark?: boolean; label:
   </article>;
 }
 
-function Sidebar({ active, nav, setActive, user }: { active: Section; nav: typeof navItems; setActive: (section: Section) => void; user: TeamMember }) {
+function Sidebar({ active, firm, nav, setActive, user }: { active: Section; firm: FirmProfile; nav: typeof navItems; setActive: (section: Section) => void; user: TeamMember }) {
   return <aside className="hidden w-72 shrink-0 border-r border-slate-200 bg-white/90 px-4 py-5 shadow-sm backdrop-blur lg:block">
     <div className="mb-6 flex items-center gap-3 px-2"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white"><ClipboardList size={21} /></div><div><p className="text-sm font-semibold text-slate-950">PracticeIQ</p><p className="text-xs text-slate-500">Practice orchestration platform</p></div></div>
     <nav className="space-y-1">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950") + " flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition"} onClick={() => setActive(item.id)} type="button"><Icon size={18} />{item.label}</button>; })}</nav>
-    <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-semibold uppercase text-slate-500">Firm workspace</p><p className="mt-2 text-sm font-semibold text-slate-900">{firm.name}</p><p className="mt-1 text-xs text-slate-500">{firm.status} - {firm.plan}</p></div>
+    <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-semibold uppercase text-slate-500">Active firm</p><p className="mt-2 text-sm font-semibold text-slate-900">{firm.name}</p><p className="mt-1 text-xs text-slate-500">{firm.status} - {firm.plan}</p></div>
     <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3"><p className="text-xs font-semibold uppercase text-blue-700">Signed in</p><p className="mt-2 text-sm font-semibold text-blue-950">{user.name}</p><p className="mt-1 text-xs text-blue-700">{user.platformRole === "Platform Owner" ? "Platform Owner" : user.firmRole}</p></div>
   </aside>;
 }
 
-function Header({ active, canCreateTask, logout, nav, open, setActive, user }: { active: Section; canCreateTask: boolean; logout: () => void; nav: typeof navItems; open: (modal: Modal) => void; setActive: (section: Section) => void; user: TeamMember }) {
+function Header({ active, canCreateTask, firm, logout, nav, open, setActive, user }: { active: Section; canCreateTask: boolean; firm: FirmProfile; logout: () => void; nav: typeof navItems; open: (modal: Modal) => void; setActive: (section: Section) => void; user: TeamMember }) {
   const title = nav.find((item) => item.id === active)?.label ?? "PracticeIQ";
-  const nextModal: Modal = active === "clients" ? "client" : active === "team" ? "team" : active === "assignments" || active === "projectReview" || active === "dashboard" ? "assignment" : "task";
+  const nextModal: Modal = active === "clients" ? "client" : active === "team" ? "team" : active === "assignments" || active === "projectReview" || active === "dashboard" ? "assignment" : active === "firmSetup" ? null : "task";
   const canManageTeam = user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin";
-  const canUsePrimaryAction = active === "team" ? canManageTeam : active === "clients" || active === "assignments" || active === "projectReview" || active === "dashboard" ? canCreateTask : canCreateTask;
-  const disabledReason = active === "team" ? "Only Platform Owner and Firm Admin can add users" : "Only Firm Admin, Partner, and Manager can create this record";
-  const actionLabel = active === "clients" ? "Add Client" : active === "team" ? "Add User" : active === "assignments" || active === "projectReview" || active === "dashboard" ? "Add Assignment" : "Create Task";
-  return <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/86 px-4 py-3 backdrop-blur md:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-blue-700">TAMS-TKG workspace</p><h1 className="text-xl font-semibold text-slate-950 md:text-2xl">{title}</h1></div><div className="flex flex-wrap items-center gap-2"><span className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:inline-flex">{user.name}</span><button aria-label="Notifications prepared for reminder layer" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400" disabled title="Notifications will activate with email reminders" type="button"><Bell size={18} /></button><button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" disabled={!canUsePrimaryAction} onClick={() => open(nextModal)} title={!canUsePrimaryAction ? disabledReason : undefined} type="button"><Plus size={18} />{actionLabel}</button><button aria-label="Log out" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={logout} type="button"><LogOut size={18} /></button></div></div><nav className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden" aria-label="Mobile workspace navigation">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600") + " inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"} onClick={() => setActive(item.id)} type="button"><Icon size={16} />{item.label}</button>; })}</nav></header>;
+  const canUsePrimaryAction = active === "firmSetup"
+    ? user.platformRole === "Platform Owner"
+    : active === "team"
+      ? canManageTeam
+      : canCreateTask;
+  const disabledReason = active === "team"
+    ? "Only Platform Owner and Firm Admin can add users"
+    : active === "firmSetup"
+      ? "Only Platform Owner can register additional firms"
+      : "Only Firm Admin, Partner, and Manager can create this record";
+  const actionLabel = active === "clients"
+    ? "Add Client"
+    : active === "team"
+      ? "Add User"
+      : active === "assignments" || active === "projectReview" || active === "dashboard"
+        ? "Add Assignment"
+        : active === "firmSetup"
+          ? "Add Firm"
+          : "Create Task";
+  return <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/86 px-4 py-3 backdrop-blur md:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-blue-700">{firm.name}</p><h1 className="text-xl font-semibold text-slate-950 md:text-2xl">{title}</h1></div><div className="flex flex-wrap items-center gap-2"><span className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:inline-flex">{user.name}</span><button aria-label="Notifications prepared for reminder layer" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400" disabled title="Notifications will activate with email reminders" type="button"><Bell size={18} /></button>{nextModal ? <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" disabled={!canUsePrimaryAction} onClick={() => open(nextModal)} title={!canUsePrimaryAction ? disabledReason : undefined} type="button"><Plus size={18} />{actionLabel}</button> : <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700" disabled title={disabledReason} type="button"><Plus size={18} />{actionLabel}</button>}<button aria-label="Log out" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={logout} type="button"><LogOut size={18} /></button></div></div><nav className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden" aria-label="Mobile workspace navigation">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600") + " inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"} onClick={() => setActive(item.id)} type="button"><Icon size={16} />{item.label}</button>; })}</nav></header>;
 }
 
 function RoleDashboardView({ assignments, clients, modules, openAssignment, openTask, setActive, tasks, team, user }: { assignments: Assignment[]; clients: Client[]; modules: ModuleFlag[]; openAssignment: () => void; openTask: (id: string) => void; setActive: (section: Section) => void; tasks: Task[]; team: TeamMember[]; user: TeamMember }) {
@@ -839,9 +886,119 @@ function ClientsView({ assignments, clients, open, tasks }: { assignments: Assig
   return <Panel title="Client master" subtitle="Client name is required. PAN, GSTIN, email, and mobile stay optional." action="Add Client" onAction={open}><div className="divide-y divide-slate-100">{clients.length === 0 && <div className="p-8 text-center text-sm text-slate-500">No clients added yet. Add the first client to unlock task creation against that client.</div>}{clients.map((client) => <div key={client.id} className="grid gap-2 p-4 md:grid-cols-[1.2fr_0.7fr_0.7fr_0.8fr_1fr_0.7fr]" title="Client record with optional statutory and contact details."><div><p className="font-semibold text-slate-950">{client.name}</p><p className="text-xs text-slate-500">{tasks.filter((task) => task.clientId === client.id).length} linked tasks</p></div><p className="text-sm text-slate-600">{assignments.filter((assignment) => assignment.clientId === client.id).length} assignments</p><p className="text-sm text-slate-600">PAN: {client.pan ?? "Optional"}</p><p className="text-sm text-slate-600">GSTIN: {client.gstin ?? "Optional"}</p><p className="text-sm text-slate-600">{client.email ?? client.mobile ?? "No contact added"}</p><span className="inline-flex w-fit rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700" title="Client status">{client.status}</span></div>)}</div></Panel>;
 }
 
+function FirmSetupView({
+  canCreateFirm,
+  currentFirm,
+  firms,
+  saveCurrentFirm,
+  saveFirms,
+  user,
+}: {
+  canCreateFirm: boolean;
+  currentFirm: FirmProfile;
+  firms: FirmProfile[];
+  saveCurrentFirm: (firm: FirmProfile) => void;
+  saveFirms: (firms: FirmProfile[]) => void;
+  user: TeamMember;
+}) {
+  function submitCurrentFirm(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const name = String(form.get("name") || "").trim();
+    const city = String(form.get("city") || "").trim();
+    const plan = String(form.get("plan") || "").trim();
+    const status = String(form.get("status") || "Active") as FirmProfile["status"];
+    const emailDomain = String(form.get("emailDomain") || "").trim().toLowerCase();
+    if (!name || !city || !plan) return;
+    const next = { ...currentFirm, name, city, plan, status, emailDomain };
+    saveCurrentFirm(next);
+    saveFirms(firms.map((item) => item.id === currentFirm.id ? next : item));
+  }
+
+  function submitNewFirm(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canCreateFirm) return;
+    const form = new FormData(event.currentTarget);
+    const name = String(form.get("newName") || "").trim();
+    const city = String(form.get("newCity") || "").trim();
+    const plan = String(form.get("newPlan") || "").trim();
+    const status = String(form.get("newStatus") || "Trial") as FirmProfile["status"];
+    const emailDomain = String(form.get("newEmailDomain") || "").trim().toLowerCase();
+    if (!name || !city || !plan || !emailDomain) return;
+    const nextFirm: FirmProfile = {
+      id: "firm_" + Date.now(),
+      name,
+      city,
+      plan,
+      status,
+      emailDomain,
+    };
+    saveFirms([nextFirm, ...firms]);
+    (event.currentTarget as HTMLFormElement).reset();
+  }
+
+  return <div className="space-y-4">
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <h2 className="text-lg font-semibold text-slate-950">Firm Setup</h2>
+      <p className="mt-1 text-sm text-slate-500">Set active firm identity and register additional firms for onboarding.</p>
+    </div>
+
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <h3 className="font-semibold text-slate-950">Active firm profile</h3>
+      <form className="mt-3 grid gap-3 md:grid-cols-2" onSubmit={submitCurrentFirm}>
+        <Field defaultValue={currentFirm.name} label="Firm name" name="name" required />
+        <Field defaultValue={currentFirm.city} label="City" name="city" required />
+        <Field defaultValue={currentFirm.plan} label="Plan" name="plan" required />
+        <Field defaultValue={currentFirm.emailDomain} label="Email domain" name="emailDomain" />
+        <Select label="Status" name="status" required>
+          <option value={currentFirm.status}>{currentFirm.status}</option>
+          {["Active", "Trial", "Paused"].filter((value) => value !== currentFirm.status).map((value) => <option key={value} value={value}>{value}</option>)}
+        </Select>
+        <div className="self-end">
+          <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700" type="submit">Save Active Firm</button>
+        </div>
+      </form>
+    </div>
+
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-slate-950">Firm registry</h3>
+        {!canCreateFirm && <span className="text-xs text-amber-700">Only Platform Owner can add firms.</span>}
+      </div>
+      <div className="mt-3 space-y-2">
+        {firms.map((item) => <div key={item.id} className="grid gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 md:grid-cols-[1.2fr_0.7fr_0.6fr_0.8fr]">
+          <div>
+            <p className="font-semibold text-slate-900">{item.name}</p>
+            <p className="text-xs text-slate-500">{item.emailDomain}</p>
+          </div>
+          <p className="text-sm text-slate-700">{item.city}</p>
+          <p className="text-sm text-slate-700">{item.plan}</p>
+          <p className="text-sm font-medium text-slate-700">{item.status}</p>
+        </div>)}
+      </div>
+
+      <form className="mt-4 grid gap-3 border-t border-slate-200 pt-4 md:grid-cols-2" onSubmit={submitNewFirm}>
+        <Field label="Firm name" name="newName" placeholder="Example LLP" required />
+        <Field label="City" name="newCity" placeholder="Mumbai" required />
+        <Field label="Plan" name="newPlan" placeholder="Starter / Professional" required />
+        <Field label="Email domain" name="newEmailDomain" placeholder="example.com" required />
+        <Select label="Status" name="newStatus" required>
+          <option>Trial</option>
+          <option>Active</option>
+          <option>Paused</option>
+        </Select>
+        <div className="self-end">
+          <button className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50" disabled={!canCreateFirm} title={canCreateFirm ? "Register new firm" : "Only Platform Owner can register firms"} type="submit">Add Firm</button>
+        </div>
+      </form>
+      <p className="mt-3 text-xs text-slate-500">Logged in as: {user.platformRole === "Platform Owner" ? "Platform Owner" : user.firmRole}</p>
+    </div>
+  </div>;
+}
+
 function TeamView({ actions, open, team, user }: { actions: MemberActions; open: () => void; team: TeamMember[]; user: TeamMember }) {
   const canManage = user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin";
-  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><div><h2 className="font-semibold text-slate-950">Team and access</h2><p className="text-sm text-slate-500">Add TAMS users, control roles, reset passwords, and deactivate access when someone leaves.</p></div><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50" disabled={!canManage} onClick={open} title="Create an active TAMS user. The user creates a password on first sign-in." type="button">Add User</button></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{team.map((member) => <UserAccessCard key={member.id} actions={actions} currentUser={user} member={member} />)}</div></div>;
+  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><div><h2 className="font-semibold text-slate-950">Team and access</h2><p className="text-sm text-slate-500">Add users, control roles, reset passwords, and deactivate access when someone leaves.</p></div><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50" disabled={!canManage} onClick={open} title="Create an active user. The user creates a password on first sign-in." type="button">Add User</button></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{team.map((member) => <UserAccessCard key={member.id} actions={actions} currentUser={user} member={member} />)}</div></div>;
 }
 
 function UserAccessCard({ actions, currentUser, member }: { actions: MemberActions; currentUser: TeamMember; member: TeamMember }) {
@@ -879,7 +1036,7 @@ function ReportsView({ clients, tasks, team }: { clients: Client[]; tasks: Task[
   return <div className="space-y-4"><div className="grid gap-3 md:grid-cols-4"><ReportPanel title="Active tasks" value={String(active.length)} detail="Open through review" icon={ClipboardList} /><ReportPanel title="Overdue" value={String(overdue)} detail="Needs attention" icon={AlertTriangle} /><ReportPanel title="Review queue" value={String(tasks.filter((task) => task.status === "Under Review").length)} detail="Pending closure" icon={Eye} /><ReportPanel title="Top workload" value={busiest?.name ?? "None"} detail="Assignee load" icon={Users} /></div><div className="grid gap-4 xl:grid-cols-2"><div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-semibold text-slate-950">Status distribution</h2><div className="mt-4 grid gap-3 md:grid-cols-3">{statuses.map((status) => <div key={status} className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-medium text-slate-500">{status}</p><p className="mt-2 text-2xl font-semibold text-slate-950">{tasks.filter((task) => task.status === status).length}</p></div>)}</div></div><div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-semibold text-slate-950">Client-wise workload</h2><div className="mt-4 space-y-3">{clients.map((client) => <div key={client.id} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm"><span className="font-medium text-slate-700">{client.name}</span><span className="font-semibold text-slate-950">{tasks.filter((task) => task.clientId === client.id && task.status !== "Closed").length} active</span></div>)}</div></div></div></div>;
 }
 
-function AdminView({ actions, activity, clients, modules, openTeam, tasks, team, toggleModule, user }: { actions: MemberActions; activity: ActivityEvent[]; clients: Client[]; modules: ModuleFlag[]; openTeam: () => void; tasks: Task[]; team: TeamMember[]; toggleModule: (id: string) => void; user: TeamMember }) {
+function AdminView({ actions, activity, clients, firm, modules, openTeam, tasks, team, toggleModule, user }: { actions: MemberActions; activity: ActivityEvent[]; clients: Client[]; firm: FirmProfile; modules: ModuleFlag[]; openTeam: () => void; tasks: Task[]; team: TeamMember[]; toggleModule: (id: string) => void; user: TeamMember }) {
   const owner = user.platformRole === "Platform Owner";
   const activeTasks = tasks.filter((task) => task.status !== "Closed");
   const overdueTasks = activeTasks.filter((task) => task.dueDate < todayIso);
@@ -904,7 +1061,7 @@ function AdminView({ actions, activity, clients, modules, openTeam, tasks, team,
             <span className="inline-flex items-center gap-2 rounded-full border border-amber-200/20 bg-amber-200/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-amber-100"><Crown size={14} /> Admin Command Center</span>
             <span className="inline-flex items-center rounded-full border border-emerald-200/20 bg-emerald-200/10 px-3 py-1 text-xs font-semibold text-emerald-100">{firm.status} workspace</span>
           </div>
-          <h2 className="mt-5 max-w-3xl text-3xl font-semibold leading-tight md:text-4xl">Control TAMS-TKG with visibility, governance, and calm operational discipline.</h2>
+          <h2 className="mt-5 max-w-3xl text-3xl font-semibold leading-tight md:text-4xl">Control firm operations with visibility, governance, and calm execution discipline.</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Start with firm health, then review users, modules, plan limits, and activity. Sensitive platform controls stay visible, traceable, and role-gated.</p>
           <div className="mt-6 grid gap-3 md:grid-cols-3">
             <AdminMetric icon={Gauge} label="Workspace health" value={healthScore + "%"} detail={overdueTasks.length ? `${overdueTasks.length} overdue attention point${overdueTasks.length === 1 ? "" : "s"}` : "No overdue pressure"} tone="emerald" />
@@ -947,12 +1104,12 @@ function AdminView({ actions, activity, clients, modules, openTeam, tasks, team,
 
       <AdminPanel title="User Administration" subtitle="Create users, control access, reset passwords, and strike off inactive profiles." icon={UserCog}>
         <div className="flex flex-wrap gap-2">
-          <button className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45" disabled={!owner && user.firmRole !== "Firm Admin"} onClick={openTeam} title="Add a TAMS email ID as an active workspace user" type="button"><UserPlus size={16} /> Add user</button>
+          <button className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45" disabled={!owner && user.firmRole !== "Firm Admin"} onClick={openTeam} title="Add a work email ID as an active workspace user" type="button"><UserPlus size={16} /> Add user</button>
           <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700" disabled title="View-as mode is prepared for the next admin layer." type="button"><Eye size={16} /> View-as</button>
           <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700" disabled title="Exports are planned for firm owner reporting." type="button"><FileDown size={16} /> Export</button>
         </div>
         <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-900" title="Current access model">
-          Add the TAMS email ID here first. The user sets their own password on first sign-in. Deactivate access when a person leaves; historical task records stay intact.
+          Add the user's work email ID here first. The user sets their own password on first sign-in. Deactivate access when a person leaves; historical task records stay intact.
         </div>
         <div className="mt-5 space-y-3">
           {roleRows.map((row) => <div key={row.role} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2" title={`${row.role}: ${row.users} user${row.users === 1 ? "" : "s"}`}>
@@ -1110,8 +1267,8 @@ function ClientModal({ close, submit }: { close: () => void; submit: (event: For
   return <ModalFrame title="Add client" subtitle="Only client name is compulsory." close={close}><form className="space-y-4" onSubmit={submit}><Field label="Client name" name="name" required /><div className="grid gap-4 md:grid-cols-2"><Field label="PAN" name="pan" /><Field label="GSTIN" name="gstin" /><Field label="Email" name="email" type="email" /><Field label="Mobile/contact" name="mobile" /></div><Actions close={close} label="Add Client" /></form></ModalFrame>;
 }
 
-function TeamModal({ close, submit }: { close: () => void; submit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <ModalFrame title="Add team member" subtitle="Use official TAMS email IDs only. Password is created by the user on first sign-in." close={close}><form className="space-y-4" onSubmit={submit}><Field label="Name" name="name" required /><Field label="TAMS email" name="email" pattern="^[^\\s@]+@tams\\.co\\.in$" placeholder="name@tams.co.in" required type="email" /><Select label="Role" name="firmRole"><option>Firm Admin</option><option>Partner</option><option>Manager</option><option>Article/Staff</option></Select><Actions close={close} label="Add User" /></form></ModalFrame>;
+function TeamModal({ close, domain, submit }: { close: () => void; domain: string; submit: (event: FormEvent<HTMLFormElement>) => void }) {
+  return <ModalFrame title="Add team member" subtitle="Use an official work email. Password is created by the user on first sign-in." close={close}><form className="space-y-4" onSubmit={submit}><Field label="Name" name="name" required /><Field label="Work email" name="email" pattern={domain ? `^[^\\s@]+@${domain.replace(".", "\\.")}$` : undefined} placeholder={domain ? `name@${domain}` : "name@yourfirm.com"} required type="email" /><Select label="Role" name="firmRole"><option>Firm Admin</option><option>Partner</option><option>Manager</option><option>Article/Staff</option></Select><Actions close={close} label="Add User" /></form></ModalFrame>;
 }
 
 function TaskDrawer({ addNote, assignments, clients, close, moveTask, task, team, user }: { addNote: (taskId: string, note: string) => void; assignments: Assignment[]; clients: Client[]; close: () => void; moveTask: (taskId: string, status: TaskStatus, remarks?: string) => void; task: Task; team: TeamMember[]; user: TeamMember }) {
@@ -1127,8 +1284,8 @@ function ModalFrame({ children, close, subtitle, title }: { children: React.Reac
   return <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/40 p-4 sm:items-center"><div className="flex max-h-[calc(100vh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"><div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4"><div><h2 className="text-lg font-semibold text-slate-950">{title}</h2><p className="text-sm text-slate-500">{subtitle}</p></div><button aria-label="Close modal" className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" onClick={close} type="button"><X size={18} /></button></div><div className="overflow-y-auto p-5">{children}</div></div></div>;
 }
 
-function Field({ label, name, pattern, placeholder, required, type = "text" }: { label: string; name: string; pattern?: string; placeholder?: string; required?: boolean; type?: string }) {
-  return <label className="block" title={required ? `${label} is required.` : `${label} is optional.`}><span className="text-sm font-medium text-slate-700">{label}{required ? " *" : ""}</span><input className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" name={name} pattern={pattern} placeholder={placeholder ?? (required ? "Required" : "Optional")} required={required} title={required ? `${label} is required.` : `${label} is optional.`} type={type} /></label>;
+function Field({ defaultValue, label, name, pattern, placeholder, required, type = "text" }: { defaultValue?: string; label: string; name: string; pattern?: string; placeholder?: string; required?: boolean; type?: string }) {
+  return <label className="block" title={required ? `${label} is required.` : `${label} is optional.`}><span className="text-sm font-medium text-slate-700">{label}{required ? " *" : ""}</span><input className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" defaultValue={defaultValue} name={name} pattern={pattern} placeholder={placeholder ?? (required ? "Required" : "Optional")} required={required} title={required ? `${label} is required.` : `${label} is optional.`} type={type} /></label>;
 }
 
 function Select({ children, label, name, required }: { children: React.ReactNode; label: string; name: string; required?: boolean }) {
@@ -1237,22 +1394,24 @@ function canManageUser(currentUser: TeamMember, target: TeamMember) {
 
 function canAccessSection(user: TeamMember, section: Section) {
   if (section === "dashboard" || section === "tasks") return true;
-  if (section === "admin" || section === "team") return user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin";
+  if (section === "admin" || section === "team" || section === "firmSetup") return user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin";
   if (section === "assignments" || section === "projectReview" || section === "clients" || section === "reports") return user.platformRole === "Platform Owner" || user.firmRole !== "Article/Staff";
   return false;
 }
 
-function isTamsEmail(email: string) {
+function isWorkspaceEmail(email: string, domain: string) {
   const normalized = normalizeEmail(email);
-  return /^[^\s@]+@[^\s@]+$/.test(normalized) && normalized.endsWith(tamsEmailDomain);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) return false;
+  if (!domain.trim()) return true;
+  return normalized.endsWith("@" + domain.trim().toLowerCase());
 }
 
 function isPlatformOwnerEmail(email: string) {
   return normalizeEmail(email) === platformOwnerEmail;
 }
 
-function isAllowedLoginEmail(email: string) {
-  return isTamsEmail(email) || isPlatformOwnerEmail(email);
+function isAllowedLoginEmail(email: string, domain: string) {
+  return isWorkspaceEmail(email, domain) || isPlatformOwnerEmail(email);
 }
 
 async function digestPassword(email: string, password: string) {

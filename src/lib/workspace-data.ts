@@ -96,12 +96,22 @@ export type Plan = {
   limits: string;
 };
 
-export const firm = {
-  id: "firm_tams_tkg",
-  name: "TAMS-TKG Chartered Accountants",
+export type FirmProfile = {
+  id: string;
+  name: string;
+  status: "Active" | "Trial" | "Paused";
+  city: string;
+  plan: string;
+  emailDomain: string;
+};
+
+export const firm: FirmProfile = {
+  id: "firm_primary",
+  name: "PracticeIQ Workspace",
   status: "Active",
   city: "Mumbai",
   plan: "Professional",
+  emailDomain: "practiceiq.in",
 };
 
 export const initialTeamMembers: TeamMember[] = [
@@ -119,7 +129,7 @@ export const initialTeamMembers: TeamMember[] = [
   {
     id: "u_admin",
     name: "Firm Admin",
-    email: "admin@tams.co.in",
+    email: "admin@practiceiq.in",
     firmRole: "Firm Admin",
     role: "Firm Admin",
     platformRole: "Standard",
@@ -129,7 +139,7 @@ export const initialTeamMembers: TeamMember[] = [
   {
     id: "u_partner",
     name: "Partner",
-    email: "partner@tams.co.in",
+    email: "partner@practiceiq.in",
     firmRole: "Partner",
     role: "Partner",
     platformRole: "Standard",
@@ -139,7 +149,7 @@ export const initialTeamMembers: TeamMember[] = [
   {
     id: "u_manager",
     name: "Manager",
-    email: "manager@tams.co.in",
+    email: "manager@practiceiq.in",
     firmRole: "Manager",
     role: "Manager",
     platformRole: "Standard",
@@ -149,7 +159,7 @@ export const initialTeamMembers: TeamMember[] = [
   {
     id: "u_staff",
     name: "Article/Staff",
-    email: "staff@tams.co.in",
+    email: "staff@practiceiq.in",
     firmRole: "Article/Staff",
     role: "Article/Staff",
     platformRole: "Standard",

@@ -21,7 +21,7 @@ npx prisma validate
 
 Build C, show A: keep the foundation SaaS-ready while showing a simple task workspace first.
 
-## TAMS-TKG UAT
+## Current Deployment
 
 Run locally with `npm run dev` and open `http://127.0.0.1:3000`.
 

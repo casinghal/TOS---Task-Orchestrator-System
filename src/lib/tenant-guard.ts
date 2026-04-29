@@ -47,7 +47,7 @@ export function validateUserForFirm(email: string, firmDomain: string, isPlatfor
 
 export function validateFirmDomain(domain: string): GuardResult {
   if (!isValidDomain(domain)) {
-    return { ok: false, message: "Enter a valid email domain, for example tams.co.in." };
+    return { ok: false, message: "Enter a valid email domain, for example example.com." };
   }
   return { ok: true };
 }
