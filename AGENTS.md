@@ -1,60 +1,57 @@
 # AGENTS.md
 
 ## 1) Project Overview
-PracticeIQ for CA/CPA firms. Current app supports multi-firm workspace behavior, task/client/team operations, admin controls, and tenant/domain validation paths.
+PracticeIQ is a SaaS-ready task orchestration platform for CA/CPA firms. Current live app includes role-based dashboards, assignment/project review, team access management, and firm setup/onboarding basics.
 
-## 2) Tech Stack
+## 2) Tech Stack (detected)
 - Next.js 16 (App Router)
 - React 19
 - TypeScript
 - Tailwind CSS 4
 - Prisma ORM
-- SQLite (local datasource in Prisma)
-- Netlify config present (`netlify.toml`)
+- PostgreSQL datasource (Supabase-ready) via `DATABASE_URL`
+- Netlify deployment via `netlify.toml`
 
 ## 3) Folder Structure
-- `src/app/` - UI pages and API routes (App Router)
-  - `src/app/page.tsx` - primary application surface
-  - `src/app/api/**/route.ts` - server endpoints
-- `src/lib/` - shared types, seed/demo data, guards, helpers
-- `prisma/` - Prisma schema
-- `public/` - static assets
-- `supabase/` - Supabase-related project artifacts
-- root configs: `package.json`, `next.config.ts`, `netlify.toml`, `.env.example`
+- `src/app/page.tsx`: main application UI (primary surface)
+- `src/app/api/**/route.ts`: tenant/firm/member/access APIs
+- `src/lib/workspace-data.ts`: seed workspace state and shared types
+- `src/lib/tenant-guard.ts`: email/domain validation rules
+- `prisma/schema.prisma`: data model and datasource
+- `supabase/`: SQL and Supabase artifacts
+- root: `netlify.toml`, `next.config.ts`, `.env.example`, docs
 
 ## 4) Coding Conventions
-- Use TypeScript strictly; prefer explicit types for API payloads/results.
-- Keep changes ASCII unless file already requires otherwise.
-- Follow existing React functional component style.
-- Reuse shared utilities from `src/lib/` instead of duplicating logic.
-- Keep UI copy concise and action-oriented.
+- Keep edits minimal and localized.
+- Follow existing functional React + TypeScript style.
+- Reuse existing helper/types in `src/lib`.
+- Maintain tooltip/guidance-first UX style already in UI.
+- Use concise, user-facing copy.
 
 ## 5) Rules for Making Changes
-- Make minimal, targeted edits only.
-- Do not rewrite full files unless explicitly requested.
-- Modify only modules directly related to the task.
-- Preserve current behavior outside requested scope.
-- Avoid refactors that are not necessary for the requested change.
+- No full rewrites unless explicitly requested.
+- Do not refactor unrelated modules.
+- Preserve role-based visibility and access gates.
+- Keep migration-safe changes (avoid breaking persisted local state unexpectedly).
 
 ## 6) Run / Build / Validate
 - Install: `npm install`
 - Dev: `npm run dev`
-- Lint: `npm run lint`
 - Build: `npm run build`
+- Lint: `npm run lint`
 - Prisma validate: `npm run db:validate`
-- Prisma generate: `npm run db:generate` or `npx prisma generate`
-- Prisma push: `npm run db:push`
-- Combined release check (if used): `npm run uat:check`
+- Prisma generate: `npx prisma generate`
+- Prisma push/migrate as needed with env set (`DATABASE_URL`, `DIRECT_URL`)
 
-## 7) Do Not Modify Without Explicit Instruction
-- `prisma/schema.prisma` data model contracts (tenant/auth/billing-impacting changes)
-- Auth and tenant guard behavior in API routes
-- Deployment config (`netlify.toml`, env expectations)
-- Production-facing domain/access rules
+## 7) Areas Not To Modify Without Explicit Instruction
+- `prisma/schema.prisma` relation contracts and auth-linked entities
+- Platform owner login behavior and role logic
+- Netlify deployment config (`netlify.toml`, `next.config.ts`)
+- API contract shape under `src/app/api/**`
 
 ## 8) Preferred Behavior
 - Always make minimal changes.
 - Never rewrite full files unnecessarily.
 - Only modify relevant modules.
-- Keep output concise.
+- Keep output concise and operational.
 
