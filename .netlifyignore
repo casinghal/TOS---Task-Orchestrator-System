@@ -1,0 +1,9 @@
+node_modules
+.next
+.npm-cache
+.git
+prisma/dev.db
+dev-server.log
+npm-debug.log*
+.env
+.env.local
