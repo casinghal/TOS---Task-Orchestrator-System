@@ -1,4 +1,4 @@
-# TOS TAMS-TKG UAT Deployment
+# PracticeIQ TAMS-TKG UAT Deployment
 
 ## Current UAT Readiness
 
@@ -44,3 +44,4 @@ Set these in Netlify once Supabase persistence is enabled:
 ## Safety
 
 Do not use real TAMS-TKG client confidential data until Supabase persistence, access control, and backups are enabled.
+

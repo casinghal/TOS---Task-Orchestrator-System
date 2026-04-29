@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TOS | Task Orchestration System",
-  description: "SaaS-ready task orchestration for Indian CA firms.",
+  title: "PracticeIQ",
+  description: "PracticeIQ: SaaS-ready task orchestration for Indian CA/CPA firms.",
 };
 
 export default function RootLayout({

@@ -446,10 +446,10 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
     <section className="grid w-full max-w-6xl overflow-hidden rounded-xl border border-amber-200/15 bg-[#101623] shadow-2xl shadow-black/50 md:grid-cols-[1.08fr_0.92fr]">
       <div className="relative overflow-hidden bg-[#0b1020] p-8 text-white md:p-12">
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-300/70 to-transparent" />
-        <div className="flex flex-col gap-3 rounded-xl border border-amber-200/20 bg-white/5 p-3 shadow-lg shadow-black/20 sm:flex-row sm:items-center" title="Task Orchestration System">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-amber-300 font-serif text-xl font-bold text-slate-950 shadow-md shadow-amber-950/20">TOS</div>
+        <div className="flex flex-col gap-3 rounded-xl border border-amber-200/20 bg-white/5 p-3 shadow-lg shadow-black/20 sm:flex-row sm:items-center" title="PracticeIQ">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-amber-300 font-serif text-xl font-bold text-slate-950 shadow-md shadow-amber-950/20">PIQ</div>
           <div className="min-w-0">
-            <p className="font-serif text-2xl font-semibold leading-tight text-amber-100 md:text-4xl">Task Orchestration System</p>
+            <p className="font-serif text-2xl font-semibold leading-tight text-amber-100 md:text-4xl">PracticeIQ</p>
             <p className="mt-1 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Clarity. Control. Closure. Confidence.</p>
           </div>
         </div>
@@ -488,7 +488,7 @@ function GuidanceNote({ text, title }: { text: string; title: string }) {
 
 function Sidebar({ active, setActive, user }: { active: Section; setActive: (section: Section) => void; user: TeamMember }) {
   return <aside className="hidden w-72 shrink-0 border-r border-slate-200 bg-white/90 px-4 py-5 shadow-sm backdrop-blur lg:block">
-    <div className="mb-6 flex items-center gap-3 px-2"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white"><ClipboardList size={21} /></div><div><p className="text-sm font-semibold text-slate-950">TOS</p><p className="text-xs text-slate-500">Task Orchestration System</p></div></div>
+    <div className="mb-6 flex items-center gap-3 px-2"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white"><ClipboardList size={21} /></div><div><p className="text-sm font-semibold text-slate-950">PracticeIQ</p><p className="text-xs text-slate-500">Practice orchestration platform</p></div></div>
     <nav className="space-y-1">{navItems.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950") + " flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition"} onClick={() => setActive(item.id)} type="button"><Icon size={18} />{item.label}</button>; })}</nav>
     <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-semibold uppercase text-slate-500">Firm workspace</p><p className="mt-2 text-sm font-semibold text-slate-900">{firm.name}</p><p className="mt-1 text-xs text-slate-500">{firm.status} - {firm.plan}</p></div>
     <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3"><p className="text-xs font-semibold uppercase text-blue-700">Signed in</p><p className="mt-2 text-sm font-semibold text-blue-950">{user.name}</p><p className="mt-1 text-xs text-blue-700">{user.platformRole === "Platform Owner" ? "Platform Owner" : user.firmRole}</p></div>
@@ -496,7 +496,7 @@ function Sidebar({ active, setActive, user }: { active: Section; setActive: (sec
 }
 
 function Header({ active, canCreateTask, logout, open, setActive, user }: { active: Section; canCreateTask: boolean; logout: () => void; open: (modal: Modal) => void; setActive: (section: Section) => void; user: TeamMember }) {
-  const title = navItems.find((item) => item.id === active)?.label ?? "TOS";
+  const title = navItems.find((item) => item.id === active)?.label ?? "PracticeIQ";
   const nextModal: Modal = active === "clients" ? "client" : active === "team" ? "team" : active === "assignments" || active === "projectReview" ? "assignment" : "task";
   const canManageTeam = user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin";
   const canUsePrimaryAction = active === "team" ? canManageTeam : active === "clients" || active === "assignments" || active === "projectReview" ? canCreateTask : canCreateTask;

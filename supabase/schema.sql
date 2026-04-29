@@ -1,4 +1,4 @@
--- TOS Supabase/Postgres starter schema for the next persistence layer.
+-- PracticeIQ Supabase/Postgres starter schema for the next persistence layer.
 -- This mirrors the approved Phase 1 data model.
 
 create table if not exists firms (

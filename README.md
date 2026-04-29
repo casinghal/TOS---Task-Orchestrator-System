@@ -1,6 +1,6 @@
-﻿# TOS App
+# PracticeIQ
 
-First working app foundation for the Task Orchestration System.
+First working app foundation for PracticeIQ.
 
 ## Current Status
 
@@ -28,3 +28,4 @@ Run locally with `npm run dev` and open `http://127.0.0.1:3000`.
 Use `npm run uat:check` before deployment.
 
 Deployment notes are in `DEPLOYMENT.md`.
+

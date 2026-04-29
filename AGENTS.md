@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## 1) Project Overview
-Task Orchestration System (TOS) for CA/CPA firms. Current app supports multi-firm workspace behavior, task/client/team operations, admin controls, and tenant/domain validation paths.
+PracticeIQ for CA/CPA firms. Current app supports multi-firm workspace behavior, task/client/team operations, admin controls, and tenant/domain validation paths.
 
 ## 2) Tech Stack
 - Next.js 16 (App Router)
@@ -57,3 +57,4 @@ Task Orchestration System (TOS) for CA/CPA firms. Current app supports multi-fir
 - Never rewrite full files unnecessarily.
 - Only modify relevant modules.
 - Keep output concise.
+
