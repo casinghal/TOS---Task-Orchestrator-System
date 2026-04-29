@@ -52,7 +52,7 @@ import {
   type TeamMember,
 } from "@/lib/workspace-data";
 
-type Section = "tasks" | "assignments" | "projectReview" | "clients" | "team" | "reports" | "admin";
+type Section = "dashboard" | "tasks" | "assignments" | "projectReview" | "clients" | "team" | "reports" | "admin";
 type ViewMode = "list" | "kanban";
 type Modal = "task" | "assignment" | "client" | "team" | null;
 type MemberActions = {
@@ -82,6 +82,7 @@ const loginTips = [
 ];
 
 const navItems = [
+  { id: "dashboard" as const, label: "Dashboard", icon: Gauge },
   { id: "tasks" as const, label: "My Tasks", icon: ClipboardList },
   { id: "assignments" as const, label: "Assignments", icon: LayoutGrid },
   { id: "projectReview" as const, label: "Project Review", icon: Gauge },
@@ -109,7 +110,7 @@ const priorityTone: Record<Task["priority"], string> = {
 
 export default function Home() {
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<Section>("tasks");
+  const [activeSection, setActiveSection] = useState<Section>("dashboard");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [modal, setModal] = useState<Modal>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -151,6 +152,9 @@ export default function Home() {
   const selectedTask = taskList.find((task) => task.id === selectedTaskId) ?? null;
   const isPlatformOwner = user?.platformRole === "Platform Owner";
   const canCreateTask = Boolean(user && creatorRoles.includes(user.firmRole));
+  const allowedSections = user ? navItems.filter((item) => canAccessSection(user, item.id)) : [];
+  const defaultSection = allowedSections[0]?.id ?? "dashboard";
+  const currentSection = user && canAccessSection(user, activeSection) ? activeSection : defaultSection;
 
   const visibleTasks = useMemo(() => {
     if (!user) return [];
@@ -374,7 +378,7 @@ export default function Home() {
       setTeamList((current) => current.map((item) => item.id === member.id ? { ...item, passwordDigest: digest, lastActive: "Today" } : item));
     }
     setSessionUserId(member.id);
-    setActiveSection("tasks");
+    setActiveSection("dashboard");
     setSelectedTaskId(null);
     setModal(null);
     setLoginTip(loginTips[Math.floor(Math.random() * loginTips.length)]);
@@ -383,7 +387,7 @@ export default function Home() {
 
   function logout() {
     setSessionUserId(null);
-    setActiveSection("tasks");
+    setActiveSection("dashboard");
     setSelectedTaskId(null);
     setModal(null);
   }
@@ -396,18 +400,19 @@ export default function Home() {
   return (
     <main className="min-h-screen overflow-x-hidden text-slate-900">
       <div className="flex min-h-screen">
-        <Sidebar active={activeSection} setActive={setActiveSection} user={user} />
+        <Sidebar active={currentSection} nav={allowedSections} setActive={setActiveSection} user={user} />
         <section className="flex min-w-0 flex-1 flex-col">
-          <Header active={activeSection} canCreateTask={canCreateTask} open={setModal} setActive={setActiveSection} user={user} logout={logout} />
+          <Header active={currentSection} canCreateTask={canCreateTask} nav={allowedSections} open={setModal} setActive={setActiveSection} user={user} logout={logout} />
           <div className="p-4 md:p-6">
             <GuidanceNote title="Tip for effective usage" text={loginTip} />
-            {activeSection === "tasks" && <TasksView assignments={assignmentList} stats={stats} tasks={visibleTasks} allTasks={taskList} clients={clientList} team={teamList} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} view={viewMode} setView={setViewMode} openTask={setSelectedTaskId} user={user} />}
-            {activeSection === "assignments" && <AssignmentsView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openClient={() => setModal("client")} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
-            {activeSection === "projectReview" && <ProjectReviewView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
-            {activeSection === "clients" && <ClientsView assignments={assignmentList} clients={clientList} tasks={taskList} open={() => setModal("client")} />}
-            {activeSection === "team" && <TeamView actions={memberActions} team={teamList} user={user} open={() => setModal("team")} />}
-            {activeSection === "reports" && <ReportsView tasks={taskList} clients={clientList} team={teamList} />}
-            {activeSection === "admin" && <AdminView actions={memberActions} user={user} tasks={taskList} clients={clientList} team={teamList} activity={activity} modules={modules} toggleModule={toggleModule} openTeam={() => setModal("team")} />}
+            {currentSection === "dashboard" && <RoleDashboardView assignments={assignmentList} clients={clientList} modules={modules} openAssignment={() => setModal("assignment")} openTask={setSelectedTaskId} setActive={setActiveSection} tasks={taskList} team={teamList} user={user} />}
+            {currentSection === "tasks" && <TasksView assignments={assignmentList} stats={stats} tasks={visibleTasks} allTasks={taskList} clients={clientList} team={teamList} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} view={viewMode} setView={setViewMode} openTask={setSelectedTaskId} user={user} />}
+            {currentSection === "assignments" && <AssignmentsView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openClient={() => setModal("client")} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
+            {currentSection === "projectReview" && <ProjectReviewView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
+            {currentSection === "clients" && <ClientsView assignments={assignmentList} clients={clientList} tasks={taskList} open={() => setModal("client")} />}
+            {currentSection === "team" && <TeamView actions={memberActions} team={teamList} user={user} open={() => setModal("team")} />}
+            {currentSection === "reports" && <ReportsView tasks={taskList} clients={clientList} team={teamList} />}
+            {currentSection === "admin" && <AdminView actions={memberActions} user={user} tasks={taskList} clients={clientList} team={teamList} activity={activity} modules={modules} toggleModule={toggleModule} openTeam={() => setModal("team")} />}
           </div>
         </section>
       </div>
@@ -486,23 +491,154 @@ function GuidanceNote({ text, title }: { text: string; title: string }) {
   return <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900" title="A practical usage tip to help the team work more consistently."><span className="font-semibold">{title}: </span>{text}</div>;
 }
 
-function Sidebar({ active, setActive, user }: { active: Section; setActive: (section: Section) => void; user: TeamMember }) {
+function DashKpi({ detail, label, tone, value }: { detail: string; label: string; tone: "amber" | "emerald" | "sky" | "violet"; value: string }) {
+  const toneClass = tone === "amber"
+    ? "from-amber-100 to-amber-50 text-amber-900"
+    : tone === "emerald"
+      ? "from-emerald-100 to-emerald-50 text-emerald-900"
+      : tone === "sky"
+        ? "from-sky-100 to-sky-50 text-sky-900"
+        : "from-violet-100 to-violet-50 text-violet-900";
+  return <article className={"rounded-xl border border-white/70 bg-gradient-to-br p-4 shadow-[0_10px_20px_rgba(15,23,42,0.08)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_26px_rgba(15,23,42,0.14)] " + toneClass}>
+    <p className="text-xs font-semibold uppercase tracking-[0.14em]">{label}</p>
+    <p className="mt-2 text-2xl font-semibold">{value}</p>
+    <p className="mt-1 text-xs opacity-75">{detail}</p>
+  </article>;
+}
+
+function DashTile({ dark = false, label, text, value }: { dark?: boolean; label: string; text: string; value: string }) {
+  return <article className={(dark ? "border-white/15 bg-white/5 text-white" : "border-slate-100 bg-slate-50 text-slate-900") + " rounded-lg border p-3 transition hover:-translate-y-0.5 hover:shadow-[0_12px_22px_rgba(15,23,42,0.12)]"}>
+    <p className={(dark ? "text-slate-300" : "text-slate-500") + " text-xs font-semibold uppercase tracking-[0.14em]"}>{label}</p>
+    <p className="mt-2 text-2xl font-semibold">{value}</p>
+    <p className={(dark ? "text-slate-300" : "text-slate-500") + " mt-1 text-xs"}>{text}</p>
+  </article>;
+}
+
+function Sidebar({ active, nav, setActive, user }: { active: Section; nav: typeof navItems; setActive: (section: Section) => void; user: TeamMember }) {
   return <aside className="hidden w-72 shrink-0 border-r border-slate-200 bg-white/90 px-4 py-5 shadow-sm backdrop-blur lg:block">
     <div className="mb-6 flex items-center gap-3 px-2"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white"><ClipboardList size={21} /></div><div><p className="text-sm font-semibold text-slate-950">PracticeIQ</p><p className="text-xs text-slate-500">Practice orchestration platform</p></div></div>
-    <nav className="space-y-1">{navItems.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950") + " flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition"} onClick={() => setActive(item.id)} type="button"><Icon size={18} />{item.label}</button>; })}</nav>
+    <nav className="space-y-1">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950") + " flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition"} onClick={() => setActive(item.id)} type="button"><Icon size={18} />{item.label}</button>; })}</nav>
     <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-semibold uppercase text-slate-500">Firm workspace</p><p className="mt-2 text-sm font-semibold text-slate-900">{firm.name}</p><p className="mt-1 text-xs text-slate-500">{firm.status} - {firm.plan}</p></div>
     <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3"><p className="text-xs font-semibold uppercase text-blue-700">Signed in</p><p className="mt-2 text-sm font-semibold text-blue-950">{user.name}</p><p className="mt-1 text-xs text-blue-700">{user.platformRole === "Platform Owner" ? "Platform Owner" : user.firmRole}</p></div>
   </aside>;
 }
 
-function Header({ active, canCreateTask, logout, open, setActive, user }: { active: Section; canCreateTask: boolean; logout: () => void; open: (modal: Modal) => void; setActive: (section: Section) => void; user: TeamMember }) {
-  const title = navItems.find((item) => item.id === active)?.label ?? "PracticeIQ";
-  const nextModal: Modal = active === "clients" ? "client" : active === "team" ? "team" : active === "assignments" || active === "projectReview" ? "assignment" : "task";
+function Header({ active, canCreateTask, logout, nav, open, setActive, user }: { active: Section; canCreateTask: boolean; logout: () => void; nav: typeof navItems; open: (modal: Modal) => void; setActive: (section: Section) => void; user: TeamMember }) {
+  const title = nav.find((item) => item.id === active)?.label ?? "PracticeIQ";
+  const nextModal: Modal = active === "clients" ? "client" : active === "team" ? "team" : active === "assignments" || active === "projectReview" || active === "dashboard" ? "assignment" : "task";
   const canManageTeam = user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin";
-  const canUsePrimaryAction = active === "team" ? canManageTeam : active === "clients" || active === "assignments" || active === "projectReview" ? canCreateTask : canCreateTask;
+  const canUsePrimaryAction = active === "team" ? canManageTeam : active === "clients" || active === "assignments" || active === "projectReview" || active === "dashboard" ? canCreateTask : canCreateTask;
   const disabledReason = active === "team" ? "Only Platform Owner and Firm Admin can add users" : "Only Firm Admin, Partner, and Manager can create this record";
-  const actionLabel = active === "clients" ? "Add Client" : active === "team" ? "Add User" : active === "assignments" || active === "projectReview" ? "Add Assignment" : "Create Task";
-  return <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/86 px-4 py-3 backdrop-blur md:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-blue-700">TAMS-TKG workspace</p><h1 className="text-xl font-semibold text-slate-950 md:text-2xl">{title}</h1></div><div className="flex flex-wrap items-center gap-2"><span className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:inline-flex">{user.name}</span><button aria-label="Notifications prepared for reminder layer" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400" disabled title="Notifications will activate with email reminders" type="button"><Bell size={18} /></button><button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" disabled={!canUsePrimaryAction} onClick={() => open(nextModal)} title={!canUsePrimaryAction ? disabledReason : undefined} type="button"><Plus size={18} />{actionLabel}</button><button aria-label="Log out" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={logout} type="button"><LogOut size={18} /></button></div></div><nav className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden" aria-label="Mobile workspace navigation">{navItems.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600") + " inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"} onClick={() => setActive(item.id)} type="button"><Icon size={16} />{item.label}</button>; })}</nav></header>;
+  const actionLabel = active === "clients" ? "Add Client" : active === "team" ? "Add User" : active === "assignments" || active === "projectReview" || active === "dashboard" ? "Add Assignment" : "Create Task";
+  return <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/86 px-4 py-3 backdrop-blur md:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-blue-700">TAMS-TKG workspace</p><h1 className="text-xl font-semibold text-slate-950 md:text-2xl">{title}</h1></div><div className="flex flex-wrap items-center gap-2"><span className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:inline-flex">{user.name}</span><button aria-label="Notifications prepared for reminder layer" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400" disabled title="Notifications will activate with email reminders" type="button"><Bell size={18} /></button><button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" disabled={!canUsePrimaryAction} onClick={() => open(nextModal)} title={!canUsePrimaryAction ? disabledReason : undefined} type="button"><Plus size={18} />{actionLabel}</button><button aria-label="Log out" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={logout} type="button"><LogOut size={18} /></button></div></div><nav className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden" aria-label="Mobile workspace navigation">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600") + " inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"} onClick={() => setActive(item.id)} type="button"><Icon size={16} />{item.label}</button>; })}</nav></header>;
+}
+
+function RoleDashboardView({ assignments, clients, modules, openAssignment, openTask, setActive, tasks, team, user }: { assignments: Assignment[]; clients: Client[]; modules: ModuleFlag[]; openAssignment: () => void; openTask: (id: string) => void; setActive: (section: Section) => void; tasks: Task[]; team: TeamMember[]; user: TeamMember }) {
+  const overdue = tasks.filter((task) => task.status !== "Closed" && task.dueDate < todayIso).length;
+  const underReview = tasks.filter((task) => task.status === "Under Review").length;
+  const openCount = tasks.filter((task) => task.status !== "Closed").length;
+  const closedCount = tasks.filter((task) => task.status === "Closed").length;
+  const activeUsers = team.filter((member) => member.isActive).length;
+  const activeAssignments = assignments.filter((assignment) => assignment.status === "Active").length;
+  const enabledModules = modules.filter((module) => module.enabled).length;
+  const canControl = user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin" || user.firmRole === "Partner";
+  const clientRows = clients.map((client) => {
+    const clientAssignments = assignments.filter((assignment) => assignment.clientId === client.id);
+    const clientTasks = tasks.filter((task) => task.clientId === client.id);
+    const pending = clientTasks.filter((task) => task.status !== "Closed").length;
+    const reviewed = clientTasks.filter((task) => task.status === "Under Review").length;
+    return { client, clientAssignments, pending, reviewed };
+  }).sort((a, b) => b.pending - a.pending);
+  const partnerAssignments = assignments.map((assignment) => {
+    const scoped = tasks.filter((task) => task.assignmentId === assignment.id);
+    const pending = scoped.filter((task) => task.status !== "Closed").length;
+    const risk = scoped.some((task) => task.status !== "Closed" && task.dueDate < todayIso);
+    return { assignment, pending, risk, nextTask: scoped.find((task) => task.status !== "Closed") };
+  }).sort((a, b) => Number(b.risk) - Number(a.risk) || b.pending - a.pending);
+  const roleTitle = user.platformRole === "Platform Owner" ? "Platform Owner Command Dashboard" : user.firmRole === "Firm Admin" ? "Firm Admin Operations Dashboard" : user.firmRole === "Partner" ? "Partner Control Dashboard" : "Firm Dashboard";
+
+  return <div className="space-y-5">
+    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold text-slate-950">{roleTitle}</h2>
+          <p className="mt-1 text-sm text-slate-500">Role-based control surface with client and assignment roll-up.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={() => setActive("projectReview")} type="button">Open Master Review</button>
+          {canControl && <button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.35)] hover:bg-blue-700" onClick={openAssignment} type="button">Add Assignment</button>}
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <DashKpi label="Open tasks" value={String(openCount)} detail={`${overdue} overdue`} tone="amber" />
+        <DashKpi label="Closed tasks" value={String(closedCount)} detail={`${underReview} under review`} tone="emerald" />
+        <DashKpi label="Active assignments" value={String(activeAssignments)} detail={`${assignments.length} total`} tone="sky" />
+        <DashKpi label="Active users" value={String(activeUsers)} detail={`${enabledModules}/${modules.length} modules enabled`} tone="violet" />
+      </div>
+    </section>
+
+    <section className="grid gap-4 xl:grid-cols-[1.3fr_1fr]">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="font-semibold text-slate-950">Client Master Dashboard</h3>
+          <button className="text-sm font-semibold text-blue-700 hover:text-blue-800" onClick={() => setActive("clients")} type="button">Manage clients</button>
+        </div>
+        <div className="space-y-2">
+          {clientRows.slice(0, 8).map((row) => <div key={row.client.id} className="grid grid-cols-[minmax(0,1fr)_120px_120px_120px] items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-2 text-sm">
+            <div>
+              <p className="font-semibold text-slate-900">{row.client.name}</p>
+              <p className="text-xs text-slate-500">{row.clientAssignments.length} assignments</p>
+            </div>
+            <span className="rounded-full bg-amber-100 px-2 py-1 text-center text-xs font-semibold text-amber-800">{row.pending} pending</span>
+            <span className="rounded-full bg-violet-100 px-2 py-1 text-center text-xs font-semibold text-violet-800">{row.reviewed} review</span>
+            <button className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100" onClick={() => setActive("projectReview")} type="button">Open</button>
+          </div>)}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h3 className="font-semibold text-slate-950">Assignment Control Board</h3>
+        <p className="mt-1 text-xs text-slate-500">Priority-sorted by risk and pending load.</p>
+        <div className="mt-3 space-y-2">
+          {partnerAssignments.slice(0, 8).map((row) => <div key={row.assignment.id} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-slate-900">{row.assignment.name}</p>
+              <span className={(row.risk ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700") + " rounded-full px-2 py-0.5 text-xs font-semibold"}>{row.risk ? "Risk" : "On track"}</span>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">{clientName(clients, row.assignment.clientId)} · {row.pending} pending tasks</p>
+            <div className="mt-2 flex gap-2">
+              <button className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100" onClick={() => setActive("projectReview")} type="button">Review</button>
+              {row.nextTask && <button className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100" onClick={() => openTask(row.nextTask!.id)} type="button">Open task</button>}
+            </div>
+          </div>)}
+        </div>
+      </div>
+    </section>
+
+    {user.firmRole === "Firm Admin" && <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="font-semibold text-slate-950">Firm Admin Controls</h3>
+        <button className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100" onClick={() => setActive("team")} type="button">Manage team</button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <DashTile label="Access alerts" value={String(team.filter((member) => !member.isActive).length)} text="Inactive accounts to review" />
+        <DashTile label="Review queue" value={String(underReview)} text="Tasks waiting for reviewer closure" />
+        <DashTile label="Client coverage" value={`${clients.length}`} text="Active clients mapped to team capacity" />
+      </div>
+    </section>}
+
+    {user.platformRole === "Platform Owner" && <section className="rounded-xl border border-slate-200 bg-slate-950 p-4 text-white shadow-[0_12px_28px_rgba(15,23,42,0.4)]">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="font-semibold">Platform Owner Compact Console</h3>
+        <button className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20" onClick={() => setActive("admin")} type="button">Open full admin</button>
+      </div>
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <DashTile dark label="Module visibility" value={`${enabledModules}/${modules.length}`} text="Feature activation authority is centralized." />
+        <DashTile dark label="Risk ledger" value={`${overdue}`} text="Overdue items requiring partner/admin intervention." />
+        <DashTile dark label="Governance scope" value={`${team.length}`} text="Users across roles under owner control." />
+      </div>
+    </section>}
+  </div>;
 }
 
 function TasksView({ allTasks, assignments, clients, openTask, query, setQuery, setStatusFilter, setView, stats, statusFilter, tasks, team, user, view }: { allTasks: Task[]; assignments: Assignment[]; clients: Client[]; openTask: (id: string) => void; query: string; setQuery: (value: string) => void; setStatusFilter: (value: "All" | TaskStatus) => void; setView: (value: ViewMode) => void; stats: { overdue: number; dueToday: number; underReview: number; closed: number }; statusFilter: "All" | TaskStatus; tasks: Task[]; team: TeamMember[]; user: TeamMember; view: ViewMode }) {
@@ -1097,6 +1233,13 @@ function canManageUser(currentUser: TeamMember, target: TeamMember) {
   if (target.id === currentUser.id) return false;
   if (currentUser.platformRole === "Platform Owner") return true;
   return currentUser.firmRole === "Firm Admin" && target.platformRole !== "Platform Owner";
+}
+
+function canAccessSection(user: TeamMember, section: Section) {
+  if (section === "dashboard" || section === "tasks") return true;
+  if (section === "admin" || section === "team") return user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin";
+  if (section === "assignments" || section === "projectReview" || section === "clients" || section === "reports") return user.platformRole === "Platform Owner" || user.firmRole !== "Article/Staff";
+  return false;
 }
 
 function isTamsEmail(email: string) {
