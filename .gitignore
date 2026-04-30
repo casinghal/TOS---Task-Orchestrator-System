@@ -45,3 +45,7 @@ next-env.d.ts
 prisma/dev.db
 dev-server.log
 .npm-cache/
+
+# Netlify CLI cache / artefacts (keep state.json tracked)
+.netlify/*
+!.netlify/state.json

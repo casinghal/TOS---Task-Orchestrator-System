@@ -1109,7 +1109,7 @@ function AdminView({ actions, activity, clients, firm, modules, openTeam, tasks,
           <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700" disabled title="Exports are planned for firm owner reporting." type="button"><FileDown size={16} /> Export</button>
         </div>
         <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-900" title="Current access model">
-          Add the user's work email ID here first. The user sets their own password on first sign-in. Deactivate access when a person leaves; historical task records stay intact.
+          Add the user&apos;s work email ID here first. The user sets their own password on first sign-in. Deactivate access when a person leaves; historical task records stay intact.
         </div>
         <div className="mt-5 space-y-3">
           {roleRows.map((row) => <div key={row.role} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2" title={`${row.role}: ${row.users} user${row.users === 1 ? "" : "s"}`}>

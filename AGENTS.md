@@ -55,3 +55,37 @@ PracticeIQ is a SaaS-ready task orchestration platform for CA/CPA firms. Current
 - Only modify relevant modules.
 - Keep output concise and operational.
 
+## 9) PracticeIQ Working Rules
+
+Effective 2026-04-30 (D-2026-04-30-15 reconciliation). These rules layer on top of Sections 1-8 above. They exist to prevent the file-corruption, verification failures, and infrastructure mistakes encountered during the Phase-1 build. Do not skip them. See `MASTER_PROJECT.md` and `DECISION_LOG.md` for the broader governance context.
+
+### G1 - OneDrive file-edit discipline
+
+For any source file touched more than once in a single wave, use one full-file `Write` instead of multiple `Edit` operations. Single-`Edit` on a file (one change in the wave) is fine. Never issue parallel `Edit` calls against the same file - parallel Edits on OneDrive-mounted files have been observed to append NULL bytes that break the ESLint parser.
+
+### G2 - Bash allowed, cross-check critical findings
+
+Bash on the Linux mount of OneDrive can serve stale snapshots during active sync. Bash is the right tool for `npm run lint`, `npm run db:validate`, `npm run uat:check`, and pattern grep. When bash output suggests a file has unexpected content (truncation, extra bytes, mismatched diff), cross-verify with the Cowork `Read` tool before acting on the finding. Read is the authoritative view of file state; do not "repair" a file based on bash alone.
+
+### G3 - Local production build is mandatory
+
+The agent's sandbox cannot run `npm run build` cleanly (OneDrive blocks `.next/BUILD_ID` deletion with EPERM). At the end of every wave that touches code or config, Pankaj runs `npm run build` (or `npm run uat:check`) on Windows PowerShell and reports green or specific error. This is mandatory, not optional.
+
+### G4 - Infra change-back-channel
+
+If Pankaj changes anything directly on Netlify (URL, build settings, env vars, custom domain) or any other live infra (Supabase, DNS, registrar, M365), the next message to the agent includes a one-line note. The next wave's first action reconciles docs and code with the change. Current locked live URL: `https://practice-iq.netlify.app`.
+
+### G5 - Section 14 sequence vs side waves
+
+Section 14 of `MASTER_PROJECT.md` is the locked execution spine. Side waves (rebrand, URL update, data cleaning, reconciliation, etc.) can interleave only when they touch different files than the active Section 14 step. When they conflict, the agent surfaces the conflict and asks for ordering before executing.
+
+### G6 - Database and schema safety
+
+In effect from Section 14 Step 2 onward (Postgres, Prisma, migrations, schema, env files):
+
+- **Git hygiene before edit**: agent runs `git status` before editing any schema or config file. If the working tree is dirty, agent surfaces the uncommitted changes and recommends a specific checkpoint commit before agent edits begin.
+- **Never delete `dev.db`**. The file may become orphaned after the Postgres switch; it stays preserved as a no-op artefact, not removed.
+- **Never run or recommend `prisma migrate reset`**. If schema-vs-data drift surfaces, agent stops and asks the user rather than suggesting reset.
+- **No destructive database operations** (`DROP TABLE`, `TRUNCATE`, `DELETE FROM` without `WHERE`, manual schema demolitions) without explicit per-action user approval.
+- **Secrets never enter chat or any committed file**. Service-role keys, `DATABASE_URL` with passwords, Supabase anon keys, etc. belong in `.env.local` only (already gitignored). Agent never requests them in chat and never pastes them anywhere the user might commit.
+
