@@ -265,3 +265,30 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Backup taken before destructive operations**: 11 files copied to `C:\Users\panka\Desktop\PracticeIQ_local_memory_backup_2026-04-30\` on 2026-04-30. Verified before `git reset --hard origin/main` ran.
 - **Testing required**: Pankaj on Windows from `02_App\tos-app`: `npm run uat:check` (origin renamed from `release:check`). Doc-only edits, expected fully green.
 - **Status**: completed pending Pankaj's local `npm run uat:check` + git stage / commit / push.
+
+---
+
+## C-2026-04-30-17 - Section 14 Step 3A: permissions map + API helper foundation
+
+- **Date**: 2026-04-30
+- **Task**: Section 14 Step 3 sub-task 3A. Foundation files for the upcoming API route work (3B-3F). Two new helper files plus one runtime dependency. No new routes, no schema, no migrations, no `.env` edits, no UI changes, no existing-route refactor. Aligned with the partial-step status logged in MASTER v1.7.
+- **Files changed**:
+  - `src/lib/permissions.ts` (NEW, ~190 lines) - canonical role and action codes (`PlatformRole.*`, `FirmRole.*`, `Action.*`); permission table mirroring MASTER Section 10; `hasPermission()` and `requirePermission()` exports; `FIRM_ROLE_LABEL` / `PLATFORM_ROLE_LABEL` UI maps; `normalizeFirmRole()` and `normalizePlatformRole()` accept both humanized and code form. Context-aware rules implemented per Section 10: `TASK_EDIT` for Partner/Manager when creator-or-reviewer; `TASK_CLOSE` for Partner/Manager when reviewer; `TASK_MOVE_TO_REVIEW` for Article/Staff on own tasks.
+  - `src/lib/api-helpers.ts` (NEW, ~135 lines) - response envelope helpers (`ok()`, `err()`, `databaseUnavailable()`); `requireSession()` placeholder returning null until Step 4; `requireAuth()` combined session-plus-permission gate that yields 401 today by design; `parseJson()` Zod validation helper; `writeActivityLog()` deferred no-op stub per D-2026-04-30-15 Decision 4.
+  - `package.json` - added `"zod": "^3.23.8"` to `dependencies` (runtime use; route handlers consume Zod at request time).
+  - `package-lock.json` - will auto-refresh on Pankaj's `npm install`.
+  - `CHANGE_LOG.md` - this entry.
+- **Reason**: Step 3A is the locked-by-default foundation for 3B-3F. Building the helpers first means every new route from 3B onward is auth-gated by construction (`requireAuth()` returns 401 until Step 4 lands real Supabase Auth). Permission map mirrors Section 10 exactly so role-action coverage is auditable in one place.
+- **Out of scope (intentional, per Pankaj 2026-04-30 approvals)**:
+  - All new API routes (3B-3F deferred to subsequent waves).
+  - All schema edits and migrations.
+  - `.env` and `.env.local` untouched.
+  - No retrofit of origin's existing 5 routes (Decision 5: hardening happens in Step 4 alongside Supabase Auth).
+  - No `src/app/page.tsx` edits.
+  - No commits / pushes by agent.
+  - No additional package installs beyond `zod`.
+- **Safety mechanism**: `requireSession()` returns null in 3A. `requireAuth()` therefore yields 401 for any new route that uses it. This makes it impossible for a 3B-3F route to ship "open" by accident. Origin's existing 5 routes are unaffected (they don't use these helpers; their auth-less state is unchanged).
+- **ActivityLog status**: deferred per Decision 4. `writeActivityLog()` exists as a future-safe signature so 3B-3F route code can call it without churn, but it is a documented NO-OP today. No rows written, no null-actorId rows, no misleading audit entries.
+- **High-risk rule check (your rule #4)**: Does NOT touch DB schema / table / column names, existing API routes, env vars used in deployment, localStorage keys, or Netlify deployment-critical config. Two new helper files; one new runtime dependency.
+- **Testing required**: Pankaj on Windows from `02_App\tos-app`: `npm install` (adds zod, refreshes lock), then `npm run uat:check` (lint + db:validate + build). Expected fully green. New helper files compile but are imported by zero call sites in 3A; tree-shaken from the build. Live URL behaviour does not change.
+- **Status**: completed pending Pankaj's local `npm install` + `npm run uat:check`.
