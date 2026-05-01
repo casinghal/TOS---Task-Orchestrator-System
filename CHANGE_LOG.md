@@ -292,3 +292,29 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **High-risk rule check (your rule #4)**: Does NOT touch DB schema / table / column names, existing API routes, env vars used in deployment, localStorage keys, or Netlify deployment-critical config. Two new helper files; one new runtime dependency.
 - **Testing required**: Pankaj on Windows from `02_App\tos-app`: `npm install` (adds zod, refreshes lock), then `npm run uat:check` (lint + db:validate + build). Expected fully green. New helper files compile but are imported by zero call sites in 3A; tree-shaken from the build. Live URL behaviour does not change.
 - **Status**: completed pending Pankaj's local `npm install` + `npm run uat:check`.
+
+---
+
+## C-2026-04-30-18 - Section 14 Step 3B: Clients API routes (read + create + update, soft-delete)
+
+- **Date**: 2026-04-30
+- **Task**: Section 14 Step 3 sub-task 3B. First real API surface that consumes the 3A foundation. Four endpoints under `/api/clients`. No DELETE method - soft-delete is via PATCH `status: "INACTIVE"`. No schema, migration, env, UI, or existing-route changes.
+- **Files changed**:
+  - `src/lib/permissions.ts` - added `Action.CLIENT_VIEW` to the FIRM_ADMIN, PARTNER, and MANAGER permission lists. Per Pankaj's 3B refinement: explicit grant only, no action-implication logic. ARTICLE_STAFF already had CLIENT_VIEW.
+  - `src/app/api/clients/route.ts` (NEW) - `GET` paginated list (defaults page=1, pageSize=50, max 200) scoped to caller's `firmId`; `POST` create. Both call `requireAuth()` (CLIENT_VIEW for GET, CLIENT_MANAGE for POST). Zod `CreateClientSchema` validates `name` (required, trimmed, min 1) and optional `pan / gstin / email / mobile / status`. Per Pankaj's 3B refinement, optional contact fields are trimmed and empty strings collapse to `undefined` inside the schema; the route then writes `null` to Prisma via `payload.field ?? null` so blanks never become stored "" data. `status` is validated against the `ACTIVE | INACTIVE` enum (uppercase, matching the schema's free-form String column with `@default("ACTIVE")` and the project convention used by Task / Firm). Email format checked when present and non-empty. POST returns 201 on success.
+  - `src/app/api/clients/[id]/route.ts` (NEW) - `GET` single read; `PATCH` partial update. Both call `requireAuth()` (CLIENT_VIEW for GET, CLIENT_MANAGE for PATCH). Cross-firm reads return 404 (does not leak existence). PATCH `UpdateClientSchema` uses a tighter null-on-empty transform: key absent in JSON body keeps the field untouched; key present with `""` clears the field to `null`; key present with a value sets it. This preserves PATCH semantics correctly with Prisma's `undefined = skip / null = clear / string = set`. Email format validated only when a non-empty value is sent. PATCH refuses an empty body with a 422 ("At least one field is required."). Soft-delete is the same PATCH path with `status: "INACTIVE"`; the `writeActivityLog()` no-op call distinguishes `CLIENT_SOFT_DELETE` from `CLIENT_UPDATE` based on the prior status value, so when Step 4 lights up the audit trail the differentiation is already correct in code.
+  - `CHANGE_LOG.md` - this entry.
+- **Reason**: 3B is the first wave that exercises 3A end-to-end and proves the locked-by-default safety mechanism works on real routes. Clients is the right starting point: a clean schema, no hierarchical permissions, and a small surface (4 endpoints).
+- **Auth state today**: every route returns 401 by design until Step 4. `requireSession()` still returns null, so `requireAuth()` short-circuits before any DB read or write. This is the safety contract we built in 3A and 3B respects it without exception.
+- **ActivityLog state today**: `writeActivityLog()` is the deferred no-op stub from 3A. POST and PATCH call it at the correct semantic points (`CLIENT_CREATE`, `CLIENT_UPDATE`, `CLIENT_SOFT_DELETE`), so when Step 4 wires the real implementation, no route code changes.
+- **Tenant isolation**: every read filters by `firmId: session.firmId`; every write sets `firmId: session.firmId`; cross-firm hits on GET-one and PATCH return 404. PLATFORM_OWNER without a firm context cannot use these routes - they get a 400 "No firm context for this session." This is the correct behaviour: cross-firm access for PLATFORM_OWNER goes through the (future) impersonation flow, not direct calls.
+- **Out of scope (intentional)**:
+  - DELETE method - explicitly excluded; soft-delete only.
+  - `.env`, schema, migrations - untouched.
+  - UI changes - none. Pages still talk to localStorage; cutover is Step 5.
+  - Refactor of origin's existing 5 routes - Decision 5 holds; harden in Step 4.
+  - Real ActivityLog rows - Decision 4 holds; no-op stub only.
+  - No commits / pushes by agent.
+- **Deviation from approved plan**: one minor refinement during implementation. The PATCH schema's optional contact fields originally collapsed `""` to `undefined`, which would have made it impossible to distinguish "user did not send the key" from "user sent empty string" once Zod 3 normalized the output object. The PATCH route now uses a tighter transform that produces `null` for empty strings (rather than `undefined`), keeping the absent-vs-clear distinction intact and mapping cleanly to Prisma's `undefined = skip / null = clear` semantics. Outcome unchanged - blanks never reach Prisma as "" - but the path is now correct under both Zod normalization rules and Prisma update semantics. CREATE route kept the original `undefined`-then-`?? null` pattern because POST has no "field absent vs cleared" distinction.
+- **Testing required**: Pankaj on Windows from `02_App\tos-app`: `npm run uat:check` (lint + db:validate + build). Expected fully green. New routes compile; live URL behaviour does not change because every route returns 401 today by design.
+- **Status**: completed pending Pankaj's local `npm run uat:check`.
