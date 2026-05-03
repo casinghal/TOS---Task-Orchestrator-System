@@ -89,3 +89,7 @@ In effect from Section 14 Step 2 onward (Postgres, Prisma, migrations, schema, e
 - **No destructive database operations** (`DROP TABLE`, `TRUNCATE`, `DELETE FROM` without `WHERE`, manual schema demolitions) without explicit per-action user approval.
 - **Secrets never enter chat or any committed file**. Service-role keys, `DATABASE_URL` with passwords, Supabase anon keys, etc. belong in `.env.local` only (already gitignored). Agent never requests them in chat and never pastes them anywhere the user might commit.
 
+### G7 - Entity route groups consume Section 23 first
+
+For any new entity route group (Section 14 Step 3D Tasks, 3E Team, 3F Modules, and any future entity routes), the agent reads `MASTER_PROJECT.md` Section 23 (or its named successor) **before** drafting the route plan. Status / priority / transition / reopen / cancel / inactive-handling / audit-event / cross-firm-ID / entitlement / paywall-feature-code decisions live there as canonical, not in scattered route files. The route plan turn cites Section 23 as the source of its implementation constraints. Decisions that conflict with Section 23 are surfaced as MCQs requiring explicit Pankaj approval, never silently overridden.
+

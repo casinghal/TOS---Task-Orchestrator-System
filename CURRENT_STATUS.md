@@ -1,18 +1,19 @@
 # CURRENT_STATUS.md - PracticeIQ
 
-Last updated: 2026-05-03 (post Section 14 Step 3C closure, C-2026-05-03-01)
+Last updated: 2026-05-03 (post Section 14 Step 3C closure, C-2026-05-03-01, and Pre-3D Product Architecture & SaaS Guardrail Scan adoption, C-2026-05-03-02)
 Update rule: edit after every milestone, audit, or stage shift.
 
 ## Repo Health
 
 - Branch: `main` (in sync with `origin/main`)
-- Latest pushed commit: `7e62c99` (`Section 14 Step 3C: Add activity read route`)
+- Latest verified runtime/code commit: `7e62c99` (`Section 14 Step 3C: Add activity read route`)
 - Section 14 Step 3C pushed, deployed, and Netlify-verified live on 2026-05-03: `GET /api/activity` returns 401 with `{"ok":false,"message":"Authentication required."}`, confirming the locked-by-default contract holds.
 - Live URL: `https://practice-iq.netlify.app/` (Netlify auto-deploys from GitHub `main`)
 - Build: `npm run uat:check` passing per Pankaj's local verification (note: origin renamed `release:check` to `uat:check`)
 - Five Netlify env vars set: `DATABASE_URL`, `DIRECT_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - Supabase project: provisioned in Mumbai (`ap-south-1`); first migration `20260429185225_init_postgres` applied
 - **Stage gate**: Founder-led POC (Stage 0). Pre-real-client-data checklist not yet started. See MASTER_PROJECT.md Section 22 and D-2026-05-03-01.
+- **Pre-3D guardrail scan adopted**: Section 14 Step 3D plan must consume MASTER_PROJECT.md Section 23 (TaskStatus / Priority canonical sets, transition matrix, reopen / cancel / closure rules, inactive user / client handling, cross-firm ID validation, audit event taxonomy, plan-tier feature codes, entitlement helper shape, Writing Assist deferred guardrails) as implementation constraints. See D-2026-05-03-02 and AGENTS.md G7.
 
 ## Current Stage
 

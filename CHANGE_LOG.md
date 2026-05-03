@@ -346,3 +346,33 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Testing required**: Pankaj on Windows from `02_App\tos-app`: `npm run uat:check` (lint + db:validate + build). Expected fully green. New route compiles; live URL behaviour does not change because every route returns 401 today by design.
 - **Rollback**: 3C touches one new file plus three edits and zero schema/data changes. Post-push, `git revert <3C-sha>` undoes everything cleanly; Netlify auto-redeploys the prior build. No data integrity exposure because there are no writes.
 - **Status**: completed pending Pankaj's local `npm run uat:check`.
+
+---
+
+## C-2026-05-03-02 - Pre-3D Product Architecture & SaaS Guardrail Scan adopted
+
+- **Date**: 2026-05-03
+- **Task**: Documentation-only wave. Lock pre-3D task operating, audit, entitlement, reporting, and Writing Assist guardrails before Section 14 Step 3D Tasks routes are built. Adopted as `MASTER_PROJECT.md` Section 23, with hygiene corrections to Sections 0, 7, 8, 14, and 16; new `DECISION_LOG.md` entry D-2026-05-03-02; new `AGENTS.md` rule G7; new marker bullet in `CURRENT_STATUS.md`.
+- **Files changed**:
+  - `MASTER_PROJECT.md` - **(a) New Section 23** (10 subsections covering: TaskStatus / Priority canonical sets; lifecycle transitions matrix; reopen-as-action / cancel / closure rules; inactive user / inactive client behaviour; cross-firm ID validation, multi-assignee, reassignment, due-date past-allowed, progress note rules; Task-entity audit event taxonomy; canonical plan-tier feature codes including `WRITING_ASSIST` at Professional+; `requireEntitlement` helper SHAPE only; Writing Assist deferred capability with all 7 guardrails; Section 14 non-impact statement). **(b) Section 0** version bump to v1.9 and Last-meaningful-update line refreshed to cite both governance waves (D-2026-05-03-01 and D-2026-05-03-02). **(c) Section 7 Current Architecture** updated to reflect that clients routes (3B, commit `d1fad2f`) and activity read route (3C, commit `7e62c99`) are shipped; remaining route groups are `tasks/`, `team/`, `modules/`. **(d) Section 8 Tech Stack** "Current" column refreshed to actual current state: Build target = Dynamic Next.js runtime with serverless functions; ORM = Prisma 6.19 (postgresql); Database = Supabase Postgres (Mumbai `ap-south-1`) with first migration `20260429185225_init_postgres` applied; Hosting = Netlify with Next.js Runtime publishing `.next/` (`@netlify/plugin-nextjs` auto-detected). Auth row deliberately retained as "Hardcoded SHA-256 hash in client bundle" pending Step 4. **(e) Section 14 Step 3** status corrected to mark 3A (commit `093a816`), 3B (commit `d1fad2f`), and 3C (commit `7e62c99`) all DONE; pending route groups trimmed to `tasks/`, `team/`, `modules/`. **(f) Section 14 Step 4** pending list refreshed: removed the stale "codified Section 10 permission matrix" item (already landed in 3A, extended in 3C with `Action.ACTIVITY_VIEW`); pending list now reads as full Supabase Auth replacing hardcoded login; `requireSession()` wired to a real Supabase session; origin firm / tenant routes hardened onto `requireAuth`; allowed-domain enforcement at the API layer; `writeActivityLog()` made real (lights up the deferred audit trail and the existing 3B / 3C call sites); removal of hardcoded Platform Owner credentials from the client bundle. **(g) Section 16 Known Risks** refreshed: Risk #4 (Prisma provider mismatch / sqlite) marked **RESOLVED 2026-04-29 / 2026-04-30 (Section 14 Step 2)** with audit-trail retention matching the Risk #1 convention; Risk #6 (compliance posture) cross-references MASTER Section 22 pre-real-client-data checklist 22.5; new Risk #7 (schema divergence: `Firm.emailDomain` single-string vs `AllowedFirmDomain` deferred per D-2026-04-30-15); new Risk #8 (ActivityLog writes deferred — `writeActivityLog()` no-op until Step 4; 3B / 3C call sites already invoke at right semantic points); new Risk #9 (notification entities `UserNotificationPreference`, `NotificationLog` and the channel / type enums not yet in schema, per D-2026-04-30-10); new Risk #10 (RLS not configured — defence-in-depth required pre-real-client-data per Section 22.5); new Risk #11 (backup and monitoring beyond Netlify / Supabase free-tier defaults — paid-plan trigger points live in Section 22.4).
+  - `DECISION_LOG.md` - new entry `D-2026-05-03-02 - Pre-3D Product Architecture & SaaS Guardrail Scan adopted` capturing Decision / Why / Alternatives rejected (6 alternatives covered including REOPENED-as-status rejection and past-due-allowed correction) / Impact.
+  - `CURRENT_STATUS.md` - one new bullet under Repo Health pointing 3D plan at MASTER Section 23, D-2026-05-03-02, AGENTS G7.
+  - `AGENTS.md` - new rule `G7 - Entity route groups consume Section 23 first` requiring 3D Tasks, 3E Team, 3F Modules and any future entity routes to read Section 23 before drafting the route plan.
+  - `CHANGE_LOG.md` - this entry.
+- **Reason**: Lock pre-3D task operating, audit, entitlement, reporting, and Writing Assist guardrails before building Tasks routes. Tasks is the core operating engine of PracticeIQ and the decisions affect reporting, audit logs, permissions, reminders, paywall controls, future AI, and persistence cutover. Pre-locking these in MASTER Section 23 means the 3D plan turn consumes a single canonical reference instead of inventing decisions in route files that would contradict later 3E / 3F / Step 4 work.
+- **Mandatory corrections applied during this wave** (per Pankaj 2026-05-03):
+  - REOPENED removed as a persistent TaskStatus; reopen is action-only (`CLOSED → IN_PROGRESS`, TaskNote with reason, clear `closedAt` and `closedById`, ActivityLog action `TASK_REOPEN`).
+  - Past due dates explicitly ALLOWED at task creation (firms enter backlog tasks at onboarding and during ad-hoc cleanup).
+  - `WRITING_ASSIST` added to feature code list at Professional+; implementation deferred to Phase 4/5.
+  - `requireEntitlement` helper is shape-locked only; not built; not wired into 3D core CRUD.
+- **Out of scope (intentional)**:
+  - No code changes.
+  - No schema changes.
+  - No route changes.
+  - No `src/lib/task-constants.ts` created (deferred to the 3D wave).
+  - No `src/lib/entitlements.ts` created (deferred to first paywall-gated route wave).
+  - No Writing Assist code, provider selection, or PII scrub layer.
+  - No Platform Ownership Register population (deferred per D-2026-05-03-01 Option A).
+  - No commits / pushes by agent.
+- **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave; will be run as part of the 3D wave when code lands.
+- **Status**: completed pending Pankaj's commit and push approval.

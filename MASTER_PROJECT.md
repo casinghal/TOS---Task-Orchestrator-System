@@ -9,8 +9,8 @@
 | Owner | Pankaj Singhal, Avantage Partners |
 | App location | `02_App/tos-app/` |
 | Live URL | `https://practice-iq.netlify.app` (single-tenant prototype) |
-| Document version | v1.7 |
-| Last meaningful update | 2026-04-30 (post cloud-Codex reconciliation, D-2026-04-30-15) |
+| Document version | v1.9 |
+| Last meaningful update | 2026-05-03 (post Pilot-to-SaaS Scaling Guardrails and Pre-3D guardrail scan, D-2026-05-03-01 and D-2026-05-03-02) |
 
 Update rule: edit only on architectural, product, or strategic change. Operational status lives in `CURRENT_STATUS.md`. Decisions in `DECISION_LOG.md`. Implementation history in `CHANGE_LOG.md`.
 
@@ -78,7 +78,7 @@ Phase 4+: architecture stays CPA-ready (multi-tenant, locale-flexible, tax-ID po
 
 **Frontend**: Next.js 16.2.4 + React 19 + Tailwind 4. Single-file `src/app/page.tsx` carries the main UI surface (modular split planned per `NEXT_TASKS.md` item 4). State managed via `useState`; persistence via `localStorage` for the UI workspace state. Login screen uses Montserrat + deep-grey theme; in-app uses Poppins. Role-based dashboards (Platform Owner / Firm Admin / Partner / others), assignment / project review, team access management, and Firm Setup section all implemented.
 
-**Backend**: Next.js dynamic runtime active on Netlify (Section 14 Step 1 close, 2026-04-30). Five API routes under `src/app/api/` (firms/, firms/[firmId]/, firms/[firmId]/access/, firms/[firmId]/members/, tenant/validate/) shipped by cloud Codex on `origin/main`. `src/lib/tenant-guard.ts` (53 lines) handles email / domain validation. `src/lib/prisma.ts` (15 lines) is the Prisma client singleton. Remaining API route groups (`clients/`, `tasks/`, `team/`, `activity/`, `modules/`) arrive in Step 3 continuation. Full Supabase Auth replacing the hardcoded SHA-256 password digest arrives in Step 4.
+**Backend**: Next.js dynamic runtime active on Netlify (Section 14 Step 1 close, 2026-04-30). Five origin API routes under `src/app/api/` (firms/, firms/[firmId]/, firms/[firmId]/access/, firms/[firmId]/members/, tenant/validate/) shipped by cloud Codex on `origin/main`. `src/lib/tenant-guard.ts` (53 lines) handles email / domain validation. `src/lib/prisma.ts` (15 lines) is the Prisma client singleton. Clients routes (`clients/`, `clients/[id]`) shipped in Step 3B (commit `d1fad2f`). Activity read route (`activity/`) shipped in Step 3C (commit `7e62c99`). Remaining API route groups (`tasks/`, `team/`, `modules/`) arrive in Step 3 continuation. Full Supabase Auth replacing the hardcoded SHA-256 password digest arrives in Step 4.
 
 **Database**: Prisma schema at `prisma/schema.prisma`, provider `postgresql`. First migration `prisma/migrations/20260429185225_init_postgres/migration.sql` (294 lines) applied to a Supabase Postgres project provisioned in Mumbai (`ap-south-1`). Schema retains multi-tenant `firmId` on every firm-scoped entity. Origin uses `Firm.emailDomain` (single string) for the firm-domain rule; D-2026-04-30-10's planned `AllowedFirmDomain` table is deferred (D-2026-04-30-15). `UserNotificationPreference`, `NotificationLog`, and the `NotificationChannel` / `NotificationType` enums are NOT yet in the schema; pending. `supabase/schema.sql` is now a historical reference; Prisma migrations are the source of truth.
 
@@ -90,11 +90,11 @@ Phase 4+: architecture stays CPA-ready (multi-tenant, locale-flexible, tax-ID po
 |---|---|---|
 | Framework | Next.js 16.2.4, React 19, TypeScript 5 | same |
 | Styling | Tailwind 4 + PostCSS | same |
-| Build target | Static export | Dynamic Next.js with serverless functions |
-| ORM | Prisma 6.19 (sqlite) | Prisma 6.19 (postgresql) |
-| Database | SQLite `dev.db` (unwired) | Supabase Postgres |
+| Build target | Dynamic Next.js runtime with serverless functions | same |
+| ORM | Prisma 6.19 (postgresql) | same |
+| Database | Supabase Postgres (Mumbai `ap-south-1`); first migration `20260429185225_init_postgres` applied | same |
 | Auth | Hardcoded SHA-256 hash in client bundle | Supabase Auth |
-| Hosting | Netlify static | Netlify with Next.js runtime + Supabase managed Postgres |
+| Hosting | Netlify with Next.js Runtime publishing `.next/`; `@netlify/plugin-nextjs` auto-detected | same |
 | Icons / UI | lucide-react | same |
 | Email | not wired | provider TBC (Resend / SES candidate) |
 
@@ -189,8 +189,8 @@ Locked five-step plan. Each step gated by approval. Status as of 2026-04-30 reco
 
 1. **Foundation cutover** - **DONE**. `next.config.ts` flipped off static export; `netlify.toml` updated for the Next.js Runtime; `MASTER_PROJECT.md`, `CURRENT_STATUS.md`, `DECISION_LOG.md`, `CHANGE_LOG.md` exist at app root; `.env.example` documents the env-var contract. Live URL serves dynamic runtime with zero-downtime requirement met.
 2. **Postgres + Prisma wiring** - **PARTIALLY DONE**. Cloud Codex shipped: provider switched from `sqlite` to `postgresql`; first migration `prisma/migrations/20260429185225_init_postgres/migration.sql` applied to Supabase Mumbai; `src/lib/prisma.ts` singleton in place. Pending: `AllowedFirmDomain` table (origin used single `Firm.emailDomain` instead per D-2026-04-30-15), `UserNotificationPreference`, `NotificationLog`, `NotificationChannel` and `NotificationType` enums. `supabase/schema.sql` is now a historical reference.
-3. **API layer scaffold** - **PARTIALLY DONE**. Cloud Codex shipped 5 API routes: `src/app/api/firms/`, `src/app/api/firms/[firmId]/`, `src/app/api/firms/[firmId]/access/`, `src/app/api/firms/[firmId]/members/`, `src/app/api/tenant/validate/`. Pending route groups: `clients/`, `tasks/`, `team/`, `activity/`, `modules/`.
-4. **Supabase Auth + tenant-guard + RBAC** - **PARTIALLY DONE**. Cloud Codex shipped `src/lib/tenant-guard.ts` (53 lines, email / domain validation). Pending: full Supabase Auth replacing the hardcoded SHA-256 password digest; codified Section 10 permission matrix; allowed-domain enforcement; removal of hardcoded Platform Owner credentials from the client bundle.
+3. **API layer scaffold** - **PARTIALLY DONE**. Cloud Codex shipped 5 origin API routes: `src/app/api/firms/`, `src/app/api/firms/[firmId]/`, `src/app/api/firms/[firmId]/access/`, `src/app/api/firms/[firmId]/members/`, `src/app/api/tenant/validate/`. Sub-step 3A (permissions map + API helper foundation, commit `093a816`), 3B (clients routes + soft-delete, commit `d1fad2f`), and 3C (activity read route, commit `7e62c99`) **DONE**. Pending route groups: `tasks/`, `team/`, `modules/`.
+4. **Supabase Auth + tenant-guard + RBAC** - **PARTIALLY DONE**. Cloud Codex shipped `src/lib/tenant-guard.ts` (53 lines, email / domain validation). Step 3A added the codified Section 10 permission matrix at `src/lib/permissions.ts` (extended in 3C with `Action.ACTIVITY_VIEW`). Pending: full Supabase Auth replacing the hardcoded login; `requireSession()` wired to a real Supabase session; origin firm / tenant routes hardened onto `requireAuth`; allowed-domain enforcement at the API layer; `writeActivityLog()` made real (lights up the deferred audit trail and the existing 3B / 3C call sites); removal of hardcoded Platform Owner credentials from the client bundle.
 5. **Persistence cutover** - **NOT STARTED**. UI still reads / writes via localStorage. API routes exist but UI does not consume them. One-time browser-side export endpoint, `ActivityLog` writes, full validation pass against Postgres, removal of localStorage source-of-truth code - all pending.
 
 ## 15. Deployment Setup
@@ -204,11 +204,16 @@ Locked five-step plan. Each step gated by approval. Status as of 2026-04-30 reco
 ## 16. Known Risks
 
 1. **Static-export trap** - **RESOLVED 2026-04-30 (Section 14 Step 1 close)**. `output: "export"` removed in Task 1.2 (C-2026-04-30-09); `netlify.toml` updated in Task 1.3 (C-2026-04-30-12); live URL serves dynamic Next.js Runtime. Historical entry retained for audit trail.
-2. **Single-file frontend** - 1,129-line `page.tsx` carries all UI, state, and logic. High regression surface for any backend wiring.
-3. **localStorage is production data** - any browser holding the prototype state could lose it on a key rename without an export bridge.
-4. **Prisma provider mismatch** - schema is `sqlite`; target is Postgres. cuid vs uuid, default(now), case sensitivity, enum handling all need verification.
-5. **Hardcoded Platform Owner credentials** - the SHA-256 password digest in the seed ships to every browser. Must be removed before any external-firm exposure.
-6. **Compliance posture (open)** - DPDP Act applicability, audit log retention period, data residency for Supabase region not yet decided.
+2. **Single-file frontend** - 1,129-line `page.tsx` carries all UI, state, and logic. High regression surface for any backend wiring. Modular split planned (`NEXT_TASKS.md` item 4).
+3. **localStorage as source of truth** - UI workspace state is browser-local until Section 14 Step 5 cutover. Any browser holding the prototype state could lose it on a key rename without an export bridge.
+4. **Prisma provider mismatch** - **RESOLVED 2026-04-29 / 2026-04-30 (Section 14 Step 2)**. Provider switched from `sqlite` to `postgresql`; first migration `20260429185225_init_postgres` applied to Supabase Mumbai. Historical entry retained for audit trail.
+5. **Hardcoded Platform Owner credentials** - the SHA-256 password digest in the seed ships to every browser. Must be removed before any external-firm exposure. Removed in Section 14 Step 4 when Supabase Auth lands.
+6. **Compliance posture (open)** - DPDP Act applicability, audit log retention period, data residency for Supabase region not yet decided. Tracked under MASTER_PROJECT.md Section 22 Pilot-to-SaaS Scaling Guardrails (pre-real-client-data checklist 22.5).
+7. **Schema divergence: `Firm.emailDomain` vs `AllowedFirmDomain`** - origin uses `Firm.emailDomain` (single string) instead of D-2026-04-30-10's planned `AllowedFirmDomain` table (multi-domain per firm). Acceptable for the current single-firm prototype; revisit when commercial activation requires firms with multiple domains. (D-2026-04-30-15.)
+8. **ActivityLog writes deferred** - `writeActivityLog()` is a documented no-op until Section 14 Step 4 supplies a real `actorId` (D-2026-04-30-15 Decision 4). Read endpoint is live (3C, C-2026-05-03-01) but returns empty results until then. Audit trail is dark in the interim; 3B / 3C call sites already invoke the helper at the right semantic points so light-up needs no route churn.
+9. **Notification entities not in schema** - `UserNotificationPreference`, `NotificationLog` tables and `NotificationChannel` / `NotificationType` enums planned per D-2026-04-30-10; not yet shipped. No reminders or audit-grade notification trail until added (Phase 2 work).
+10. **RLS not configured** - row-level security policies not yet defined on tenant-scoped tables. Tenant isolation is enforced today at the route layer only via `requireAuth` + `firmId` filters. RLS adds a defence-in-depth layer; required pre-real-client-data per Section 22.5.
+11. **Backup and monitoring beyond defaults** - no PITR, no read replica, no application-level monitoring or alerting beyond Netlify and Supabase free-tier defaults. Acceptable for Stage 0 POC; trigger points for paid plans live in Section 22.4.
 
 ## 17. Long-term Roadmap
 
@@ -486,3 +491,193 @@ A short companion document captures account ownership facts: account holder, log
 ### 22.8 Section 14 non-impact
 
 This section does NOT reorder, weaken, delay, or override Section 14. The locked execution sequence remains: Step 3D Tasks → 3E Team → 3F Modules → Step 4 Auth + RBAC → Step 5 Persistence cutover. Stage 0.5 (Friendly Pilot) is technically blocked until Steps 4 and 5 complete; this section names that block in writing instead of leaving it implicit. Governance lives alongside execution, not in front of it.
+
+## 23. Pre-Build Architecture Locks for Section 14 Step 3D
+
+Architecture and SaaS guardrails locked before Section 14 Step 3D Tasks routes are implemented. Section 14 sequence is preserved; this section is consumed by the 3D plan as implementation constraints. See D-2026-05-03-02 for the locked decision. Does NOT reorder or weaken Section 14.
+
+### 23.1 Task status and priority canonical sets
+
+`TaskStatus` (canonical, no other values permitted at the route layer):
+
+- `OPEN`
+- `IN_PROGRESS`
+- `PENDING_CLIENT`
+- `PENDING_INTERNAL`
+- `UNDER_REVIEW`
+- `CLOSED`
+- `CANCELLED`
+
+`Priority` (canonical):
+
+- `LOW`
+- `NORMAL` (default)
+- `HIGH`
+- `CRITICAL`
+
+These constants live in a single source of truth (`src/lib/task-constants.ts`, to be created during the 3D wave). Schema columns (`Task.status`, `Task.priority`) remain `String` in Prisma; the route layer enforces the allowed values via Zod. No schema migration required for 3D.
+
+Reopen is **not** a persistent status. It is an action / event (see 23.3 and the audit taxonomy in 23.6). The status set above is final and complete.
+
+### 23.2 Task lifecycle transitions matrix
+
+Allowed next states from each current state. Any other transition returns 422 from 3D PATCH.
+
+| From | Allowed next states |
+|------|---------------------|
+| `OPEN` | `IN_PROGRESS`, `PENDING_INTERNAL`, `PENDING_CLIENT`, `CANCELLED` |
+| `IN_PROGRESS` | `PENDING_INTERNAL`, `PENDING_CLIENT`, `UNDER_REVIEW`, `CANCELLED` |
+| `PENDING_CLIENT` | `IN_PROGRESS`, `UNDER_REVIEW`, `CANCELLED` |
+| `PENDING_INTERNAL` | `IN_PROGRESS`, `UNDER_REVIEW`, `CANCELLED` |
+| `UNDER_REVIEW` | `IN_PROGRESS` (revision back), `CLOSED`, `CANCELLED` |
+| `CLOSED` | `IN_PROGRESS` only via approved reopen action (see 23.3) |
+| `CANCELLED` | terminal — no transitions out |
+
+The transition map is stored as `TASK_STATUS_TRANSITIONS` in `src/lib/task-constants.ts`. Routes do not encode allowed-next state inline.
+
+### 23.3 Reopen, cancel, and closure rules
+
+**Closure (`UNDER_REVIEW → CLOSED`)**:
+
+- Only the task's mandatory reviewer (or `FIRM_ADMIN`) may move to `CLOSED`. Assignees cannot self-close (Section 10 + `permissions.ts`).
+- `closureRemarks` must be non-empty and trimmed at the route layer.
+- `closedAt` set to now; `closedById` set to actor.
+- A `TaskNote` row is written with `oldStatus = UNDER_REVIEW`, `newStatus = CLOSED`, body mirroring `closureRemarks`.
+
+**Reopen (`CLOSED → IN_PROGRESS`)**:
+
+- Reopen is an **action**, not a persistent status. It is the only way to leave `CLOSED`.
+- Default destination state is `IN_PROGRESS`. No other reopen target supported.
+- Allowed actors: `FIRM_ADMIN`, or the original reviewer of the task.
+- A reason (free text, non-empty, trimmed) is required and recorded as a `TaskNote` with `oldStatus = CLOSED`, `newStatus = IN_PROGRESS`, body = the reopen reason.
+- `closedAt` and `closedById` are cleared (set to null).
+- ActivityLog action emitted (when Step 4 lights up writes): `TASK_REOPEN`.
+
+**Cancel (`* → CANCELLED`, terminal)**:
+
+- Allowed actors: `FIRM_ADMIN`, `PARTNER`, or the task creator.
+- Allowed from any non-terminal state.
+- A reason (free text, non-empty, trimmed) is required and recorded as a `TaskNote` with `oldStatus = <current>`, `newStatus = CANCELLED`, body = the cancel reason.
+- `CANCELLED` is terminal; cannot be reopened. To resume work, a new task must be created.
+- ActivityLog action emitted (when Step 4 lights up writes): `TASK_CANCEL`.
+
+### 23.4 Inactive user and inactive client handling
+
+**Inactive user** (deactivated via Step 3E or future team route):
+
+- New task POST refuses an `assigneeId` or `reviewerId` that resolves to an inactive `FirmMember`.
+- Existing task assignments survive — no orphaning, no automatic reassignment.
+- Existing reviewer assignments survive — closure path remains via `FIRM_ADMIN` reopen + reassign if the original reviewer cannot act.
+- ActivityLog action when toggled (Step 3E): `TEAM_MEMBER_DEACTIVATE` / `TEAM_MEMBER_REACTIVATE`.
+
+**Inactive client** (soft-deleted via 3B PATCH `status: "INACTIVE"`):
+
+- New task POST refuses a `clientId` that resolves to an `INACTIVE` client (returns 422 with explicit message).
+- Existing tasks against the now-inactive client survive and remain editable. Reports filter them out by default but can include them when explicitly requested.
+
+### 23.5 Other task rules consumed by 3D
+
+- **Mandatory client**: schema enforces (`Task.clientId` non-nullable). Route validates client exists, belongs to caller's firm, and is `ACTIVE`.
+- **Mandatory reviewer**: schema enforces (`Task.reviewerId` non-nullable). Route validates reviewer is an active `FirmMember` of caller's firm.
+- **Cross-firm ID validation**: every `clientId`, `reviewerId`, `assigneeId` referenced in POST or PATCH must resolve to a record with `firmId == session.firmId`. Mismatch returns 404 (does not leak existence). This is the single most important tenant-isolation invariant in 3D.
+- **Multi-assignee**: at least one assignee required at POST. Add / remove operations are set semantics (not replace-all). Assignee mutation goes through a dedicated endpoint (3D sub-route, e.g., `PATCH /api/tasks/[id]/assignees`).
+- **Reassignment authority**: `FIRM_ADMIN` always; `PARTNER` and `MANAGER` only when caller is task creator or current reviewer; `ARTICLE_STAFF` cannot reassign.
+- **Due date**: `Task.dueDate` is mandatory and must be a valid ISO 8601 datetime. **Past due dates are permitted** because firms enter backlog tasks at onboarding and during ad-hoc cleanup. Past-due tasks surface as overdue in reports; the route does not reject them.
+- **Progress note minimum**: 1 character (trimmed); maximum 4000 characters. Required when status moves to `PENDING_CLIENT`, `PENDING_INTERNAL`, `UNDER_REVIEW`, or `CANCELLED`. Required on reopen (the reopen reason). Optional on `OPEN → IN_PROGRESS` and on field-only PATCH (no status change).
+- **Closure remarks**: non-empty, trimmed, required at transition to `CLOSED`. Stored on `Task.closureRemarks` and mirrored as the body of the auto-created `TaskNote`.
+
+### 23.6 Audit event taxonomy for Task entity
+
+Canonical `action` strings called from 3D route code via the deferred `writeActivityLog()` helper. Writes remain a no-op until Step 4 supplies a real `actorId`; the action strings lock now so the audit trail is consistent from day one when writes light up.
+
+| Event | Action string | Metadata (`metadataJson`) |
+|-------|---------------|---------------------------|
+| Task created | `TASK_CREATE` | none |
+| Task field edited (non-status) | `TASK_UPDATE` | changed field names |
+| Task status moved | `TASK_STATUS_CHANGE` | `oldStatus`, `newStatus` |
+| Note added (no status change) | `TASK_NOTE_ADD` | none |
+| Assignees added | `TASK_ASSIGNEE_ADD` | added `userId`s |
+| Assignees removed | `TASK_ASSIGNEE_REMOVE` | removed `userId`s |
+| Reviewer changed | `TASK_REVIEWER_CHANGE` | `oldReviewerId`, `newReviewerId` |
+| Task closed | `TASK_CLOSE` | none (closureRemarks lives on Task) |
+| Task reopened | `TASK_REOPEN` | reason (note ID reference) |
+| Task cancelled | `TASK_CANCEL` | reason (note ID reference) |
+
+ActivityLog writes for non-Task entities (Team, Module, Plan, Auth, Cross-firm, Data) follow the same lock pattern; the full taxonomy is recorded in the Pre-3D scan (D-2026-05-03-02 Impact section).
+
+### 23.7 Plan-tier feature codes (canonical)
+
+Locked feature / module code set used by the future `requireEntitlement` helper (23.8) and by the Platform Owner Plan & Modules surface. Pricing values remain TBC per Section 5.
+
+| Code | Tier required | Module flag? | Notes |
+|------|---------------|--------------|-------|
+| `TASK_CORE` | Starter+ | no | Always-on for paying firms |
+| `CLIENT_CORE` | Starter+ | no | Always-on for paying firms |
+| `TEAM_CORE` | Starter+ | no | Always-on for paying firms |
+| `BASIC_REPORTS` | Starter+ | no | |
+| `RECURRING_TASKS` | Professional+ | yes | Phase 2/3 |
+| `CLIENT_REQUEST_ENGINE` | Professional+ | yes | Section 21.1 |
+| `ADVANCED_REPORTS` | Professional+ | yes | Phase 3 |
+| `EMAIL_REMINDERS` | Professional+ | yes | Phase 2 |
+| `WRITING_ASSIST` | Professional+ | yes | Section 23.9; deferred |
+| `CLIENT_PORTAL` | Enterprise | yes | Section 21.2 pre-conditions all met |
+| `DOCUMENT_UPLOAD` | Enterprise | yes | Section 21.2 |
+| `WHATSAPP_REMINDERS` | Enterprise | yes | Phase 5 |
+| `AI_ASSIGNMENT_BUILDER` | Enterprise | yes | Section 19 item 1 |
+| `CAPACITY_INTELLIGENCE` | Enterprise | yes | Section 19 item 2 |
+| `AUDIT_LOG_SEARCH` | Enterprise | yes | |
+| `ADVANCED_ADMIN_CONTROLS` | Enterprise | yes | |
+
+Beta / pilot firms are NOT a hardcoded code branch. They are subscribed to a `Plan` row (`BETA` or equivalent) with `FirmModuleAccess` rows enabling whatever modules the pilot needs. The `requireEntitlement` resolver (23.8) treats them as ordinary firms.
+
+### 23.8 Entitlement helper shape (future-only)
+
+The shape below is locked so future routes consume a stable signature. **The helper itself is NOT built during 3D.** 3D core CRUD does not call it. The first route to import `requireEntitlement` is whichever ships the first paywall-gated feature (likely `RECURRING_TASKS` in Phase 2/3).
+
+```ts
+// src/lib/entitlements.ts (FUTURE — not built in 3D)
+export type EntitlementResult =
+  | { ok: true }
+  | { ok: false; status: 402 | 403; message: string };
+
+export async function requireEntitlement(
+  firmId: string,
+  featureCode: string,
+): Promise<EntitlementResult>;
+```
+
+Resolution order (when implemented):
+
+1. Active `FirmSubscription` (status in `TRIAL`, `ACTIVE`, `GRACE`).
+2. Subscription's plan tier ≥ feature's required tier (per 23.7).
+3. For module-flag-gated features, `FirmModuleAccess.isEnabled = true`.
+4. Returns `{ok: false, status: 402}` for plan-tier failures; `{ok: false, status: 403}` for module disabled; `{ok: true}` otherwise.
+
+UI hiding alone is never sufficient — every paywall-relevant route MUST call `requireEntitlement` server-side once it is built. Operational screens carry no premium clutter (Section 21.3); locked features live only in the Plan & Modules surface.
+
+Payment gateway integration and billing automation remain deferred to Phase 4 (Section 17).
+
+### 23.9 Writing Assist - deferred capability concept
+
+A future lightweight feature that helps users improve wording in task title, task description, progress notes, review comments, blocker notes, client request text, and closure remarks - without changing meaning or intent.
+
+**Feature code**: `WRITING_ASSIST` (locked in 23.7). Recommended tier: Professional+. Beta firms may receive it through plan / module access later.
+
+**Fits Section 19 Product Intelligence Strategy** (rules first, contextual, human approval mandatory, confidential by design, predictable cost).
+
+**Locked guardrails (for the future implementation)**:
+
+- Available to all firm roles where text boxes exist (`FIRM_ADMIN`, `PARTNER`, `MANAGER`, `ARTICLE_STAFF`).
+- User approval is mandatory on every suggestion. **Never auto-replace user text** under any condition. Original user text is the canonical value until the user explicitly clicks Accept.
+- **No document or file processing** — text refinement only on user-typed strings within PracticeIQ text fields.
+- Controlled exclusively by entitlement / module flag (`requireEntitlement(firmId, "WRITING_ASSIST")`). Module-flag default = OFF.
+- **Per-firm and per-user daily usage caps required before any implementation** (cap values configurable on `Plan` row when implemented). Cap exceeded returns 429 with a friendly daily-limit message.
+- Data safety: PII scrub before send; no client-name embedding in prompts; provider must not use requests for training; per-firm opt-in setting; audit log every call.
+- UI placement: small inline action ("Improve wording") next to qualifying textareas; never a separate AI panel; honours Section 20.6 low-clutter rule; disabled when module flag is off.
+- Field design: no schema change required for forward-compatibility. Existing `String` columns (`Task.title`, `Task.description`, `Task.closureRemarks`, `TaskNote.note`) accommodate refinement on user accept.
+
+**Not implemented during 3D.** No AI calls, no provider selection, no PII scrub layer, no UI affordance — none of these ship in 3D. This subsection locks only the concept, the feature code, and the guardrails.
+
+### 23.10 Section 14 non-impact
+
+This section does NOT reorder, weaken, delay, or override Section 14. The locked execution sequence remains: Step 3D Tasks → 3E Team → 3F Modules → Step 4 Auth + RBAC → Step 5 Persistence cutover. No schema change is introduced. All 23.1-23.9 locks operate at the route layer (Zod validation, transition map, ID-belongs-to-firm checks) using one new constants file (`src/lib/task-constants.ts`) that the 3D wave will create. Future entity route groups (3E Team, 3F Modules) consume this section's pattern per AGENTS.md G7.
