@@ -103,3 +103,18 @@ The check runs as a short structured report in chat (typically ~10 lines) before
 
 Independent ChatGPT review (per `MASTER_PROJECT.md` Section 24.6) is a control input, not an approval. Only Pankaj's explicit chat go-ahead authorises execution.
 
+### G9 - Cost discipline at Stage 0
+
+PracticeIQ is a founder-led POC. Recommendations prefer free, built-in, open-source, or existing-stack options before any paid spend. Detailed principle and trigger framework live at `MASTER_PROJECT.md` Section 22.9.
+
+For every proposal that touches tooling, infrastructure, third-party APIs, paid plans, or any spend (including switching from a free tier to a paid one), the agent presents four rows in this order:
+
+1. **Free / built-in / open-source option** - which Netlify / Supabase / GitHub / Prisma / Next.js feature, or which open-source tool
+2. **Paid option** - the named alternative if a paid path becomes necessary
+3. **Recommendation** - one of the two above
+4. **Trigger point for upgrade** - concrete stage gate or observable event that flips the recommendation (e.g., "first paying firm", "3 active firms", "Stage 0.5 friendly pilot", "API quota exceeded", or "specific gap that free option cannot close")
+
+Recommending a paid option without all four rows is a check failure under MASTER Section 24.5 (specifically C8 "no unlogged decisions" - paid tooling decisions need their justification visible).
+
+Vendor prices, exact free-tier limits, and plan limits are NOT hardcoded in MASTER or AGENTS. The agent verifies current pricing and limits from official vendor sources at the time of recommendation and surfaces them in chat for the specific decision; the documented rule stays principle-based.
+

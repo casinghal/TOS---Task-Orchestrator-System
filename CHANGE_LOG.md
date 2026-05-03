@@ -400,3 +400,29 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
   - No commits / pushes by agent.
 - **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave; will be run as part of the 3D wave when code lands.
 - **Status**: completed pending Pankaj's commit and push approval.
+
+---
+
+## C-2026-05-03-04 - Cost Discipline at Stage 0 adopted
+
+- **Date**: 2026-05-03
+- **Task**: Documentation-only wave. Adopt cost discipline as a standing Stage 0 operating principle. New `MASTER_PROJECT.md` Section 22.9 captures the principle (existing stack → free / built-in → open-source → paid with justification; four-question template for paid recommendations; six acceptable-reason categories; existing-stack defaults table; paid-acceptable-when-triggered table). New `AGENTS.md` rule G9 makes the four-row recommendation template (Free option / Paid option / Recommendation / Trigger) binding on all future agent proposals. New `DECISION_LOG.md` entry D-2026-05-03-04. New `CURRENT_STATUS.md` Repo Health marker plus header refresh. `MASTER_PROJECT.md` Section 0 metadata refreshed to v2.1 / D-2026-05-03-04. Vendor prices, free-tier limits, and plan limits are NOT hardcoded in governance files - the rule is principle-based and the agent verifies pricing from official sources at the time of recommendation; named example vendors are illustrative only.
+- **Files changed**:
+  - `MASTER_PROJECT.md` - **(a) New Section 22.9** "Cost discipline at Stage 0" appended after Section 22.8 (and before Section 23). Covers: order of preference (existing stack → free → open-source → paid); four-question template every paid recommendation must answer (why free not enough; when paid necessary; what trigger; rollback / downgrade path); six acceptable reason categories at Stage 0 (security; data safety; reliability; unavoidable API cost; client / revenue trigger; future scalability); existing-stack defaults table (8 categories, including the row "Project memory / governance / decision history / change history / agent rules → The five Tier 1 governance file pack at `02_App/tos-app/`"); paid-acceptable-when-triggered table (6 categories with named example vendors but no hardcoded prices, limits, or quotas); cross-references to Sections 22.4 / 23.7 / 24.4; explicit non-impact on Section 14 and on already-approved tooling. **(b) Section 0** Document version bumped from v2.0 to v2.1; Last-meaningful-update line refreshed to "2026-05-03 (post Cost Discipline at Stage 0, D-2026-05-03-04)". Prior governance history (D-01, D-02, D-03) remains traceable via the DECISION_LOG.
+  - `AGENTS.md` - new rule `G9 - Cost discipline at Stage 0` in Section 9 after G8. References MASTER 22.9 for the detailed principle. Codifies the four-row recommendation template (Free / Paid / Recommendation / Trigger) as binding on every proposal that touches tooling, infrastructure, third-party APIs, paid plans, or any spend (including switching from a free tier to a paid one). Notes that recommending a paid option without all four rows is a check failure under MASTER 24.5 C8. Confirms vendor prices and free-tier limits are NOT hardcoded; agent verifies from official sources at the time of recommendation.
+  - `DECISION_LOG.md` - new entry `D-2026-05-03-04 - Cost Discipline at Stage 0 adopted` capturing Decision / Why / Alternatives rejected (4 alternatives covered including the hardcode-prices and bundle-with-Section-25 rejections) / Impact.
+  - `CURRENT_STATUS.md` - **(a)** new bullet under Repo Health: "Cost discipline at Stage 0 active: every recommendation that touches tooling, infrastructure, or spend uses the four-row template (Free / Paid / Recommendation / Trigger) per AGENTS G9. Detailed principle at MASTER_PROJECT.md Section 22.9. See D-2026-05-03-04." **(b)** Last-updated header line refreshed to also cite C-2026-05-03-04 (post Cost Discipline at Stage 0).
+  - `CHANGE_LOG.md` - this entry.
+- **Reason**: PracticeIQ is a founder-led POC; capital and time both flow at this stage. Without an explicit cost-discipline rule, recommendations drift toward enterprise-tier tooling that adds spend without proportionate value. The principle complements Section 22.4 stage gates (which specify when paid plans become acceptable for PracticeIQ's own infrastructure) by governing how every recommendation is framed in the meantime. AGENTS G9 makes it binding so future agents apply it without being reminded.
+- **Out of scope (intentional)**:
+  - No code changes.
+  - No schema changes.
+  - No route changes.
+  - No 3D planning or implementation.
+  - No Section 25 Security edits (Section 25 proposal stays on hold; will be re-presented under the G9 four-row template after this commit).
+  - No retrospective re-justification of already-approved tooling.
+  - No vendor prices, exact free-tier limits, plan quotas, or vendor lock-ins hardcoded.
+  - No Platform Ownership Register population.
+  - No commits / pushes by agent.
+- **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave.
+- **Status**: completed pending Pankaj's commit and push approval.

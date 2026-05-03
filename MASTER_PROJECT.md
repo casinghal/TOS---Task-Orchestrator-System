@@ -9,8 +9,8 @@
 | Owner | Pankaj Singhal, Avantage Partners |
 | App location | `02_App/tos-app/` |
 | Live URL | `https://practice-iq.netlify.app` (single-tenant prototype) |
-| Document version | v2.0 |
-| Last meaningful update | 2026-05-03 (post Governance File Maintenance & Independent Review Protocol, D-2026-05-03-03) |
+| Document version | v2.1 |
+| Last meaningful update | 2026-05-03 (post Cost Discipline at Stage 0, D-2026-05-03-04) |
 
 Update rule: edit only on architectural, product, or strategic change. Operational status lives in `CURRENT_STATUS.md`. Decisions in `DECISION_LOG.md`. Implementation history in `CHANGE_LOG.md`.
 
@@ -491,6 +491,67 @@ A short companion document captures account ownership facts: account holder, log
 ### 22.8 Section 14 non-impact
 
 This section does NOT reorder, weaken, delay, or override Section 14. The locked execution sequence remains: Step 3D Tasks → 3E Team → 3F Modules → Step 4 Auth + RBAC → Step 5 Persistence cutover. Stage 0.5 (Friendly Pilot) is technically blocked until Steps 4 and 5 complete; this section names that block in writing instead of leaving it implicit. Governance lives alongside execution, not in front of it.
+
+### 22.9 Cost discipline at Stage 0
+
+PracticeIQ is a founder-led POC. Capital and time both flow at Stage 0. Until Stage 1+ revenue justifies it, every recommendation prefers free, built-in, open-source, or existing-stack options before any paid spend. Trigger points for paid plans live in 22.4; this subsection governs how recommendations are framed and chosen day-to-day.
+
+**Order of preference for any new capability:**
+
+1. **Existing stack** - is the capability already available in Netlify, Supabase, GitHub, Prisma, Next.js, or one of the Tier 1 governance files? If yes, use it.
+2. **Free / built-in tier** - does Netlify free, Supabase free, GitHub free, or another provider's free tier cover the need? If yes, use it.
+3. **Open-source self-hosted** - is there a mature open-source tool that runs inside the existing stack with no incremental hosting cost? If yes, evaluate and use.
+4. **Paid tier with clear justification** - only when free / built-in / open-source genuinely does not cover the need.
+
+**Every paid recommendation must answer four questions in writing:**
+
+1. **Why is free / built-in / open-source not enough?** (Specific gap in the free option.)
+2. **When does paid become necessary?** (Stage gate or usage trigger - e.g., Stage 0.5 friendly pilot, first paying firm, 3 active firms, 5 paying firms, or a specific volume / quota threshold.)
+3. **What is the trigger?** (Concrete, observable event that flips the recommendation from "defer" to "buy".)
+4. **What is the rollback / downgrade path?** (How to leave the paid plan if the trigger reverses.)
+
+**Acceptable reasons for a paid recommendation at Stage 0** (otherwise defer):
+
+- **Security**: a paid feature closes a real security gap that free / built-in / open-source cannot
+- **Data safety**: backup / restore / audit obligations that free options cannot meet for the data sensitivity in question
+- **Reliability**: the free tier's uptime or rate limits would cause real user impact
+- **Unavoidable API cost**: the feature itself requires paying a provider (e.g., AI text refinement, transactional email at scale, WhatsApp Business API, payment gateway)
+- **Client / revenue trigger**: a paying firm has explicitly required the capability as a condition of paying
+- **Future scalability**: the upgrade path needs to be in place before a known short-term scale event (e.g., friendly pilot inviting N firms within Y weeks)
+
+**Categories where existing stack is the default starting point:**
+
+| Need | Default starting point |
+|------|------------------------|
+| Hosting / build / SSL / security headers | Netlify free + `netlify.toml` |
+| Database / auth / storage / RLS / manual backups | Supabase free |
+| Source control / branch protection / Dependabot / Actions free minutes | GitHub free |
+| ORM / migrations / validation | Prisma + Zod |
+| Server functions / API routes | Next.js dynamic runtime |
+| Project memory / governance / decision history / change history / agent rules | The five Tier 1 governance file pack at `02_App/tos-app/` |
+| Documentation / runbooks / incident log / status notes | Markdown in repo |
+| Monitoring / failed-auth signals (Stage 0) | Supabase default logs + Netlify function logs + `console.warn` server-side |
+
+**Categories where paid spend is acceptable when the trigger fires:**
+
+| Need | Free / built-in path | Paid path (named example only) | Trigger to upgrade |
+|------|----------------------|--------------------------------|--------------------|
+| Database backup / PITR | Manual `pg_dump` to free object storage | Supabase Pro PITR (or equivalent) | First paying firm per 22.4 (consider pulling earlier if pilot data sensitivity warrants) |
+| Transactional email | Provider free tier with low daily cap | Provider paid tier (Resend / SES / similar) | First friendly pilot (so reminders actually send) |
+| AI text refinement | None - inherently paid API | Anthropic / OpenAI / similar | When `WRITING_ASSIST` ships per Section 23.9 |
+| WhatsApp messaging | None - inherently paid (BSP fees) | WhatsApp Business API via a Business Solution Provider | When `WHATSAPP_REMINDERS` ships (Phase 5) |
+| Payment processing | None - inherently paid | Razorpay / Stripe / similar | First paying firm |
+| Application monitoring beyond Supabase / Netlify defaults | Console logs + manual review | Sentry / similar | 3 active firms OR first reported user-facing incident |
+
+Vendor prices, free-tier limits, and plan limits are NOT hardcoded in this section. The agent verifies current pricing and limits from official vendor sources at the time of recommendation and surfaces them in chat for the specific decision; the documented rule stays principle-based. Named vendors above are examples only, not locked vendor decisions.
+
+**Cost discipline interacts with three other governance items:**
+
+- **Section 22.4 stage gates** specify *when* paid plans become acceptable for PracticeIQ's own infrastructure. 22.9 specifies *how* every recommendation is framed in the meantime.
+- **Section 23.7 plan-tier feature codes** specify *which* features sit behind paid tiers in PracticeIQ's own commercial model. 22.9 governs which paid tools PracticeIQ itself buys to build the platform.
+- **Section 24.4 synchronization rules** require any new agent behaviour rule to live in `AGENTS.md`. The cost-discipline behaviour rule lives at AGENTS G9.
+
+This subsection does NOT change Section 14 sequence, does NOT block any current work, and does NOT mandate retrospective re-justification of already-approved tooling. It applies forward from the commit that adopts it.
 
 ## 23. Pre-Build Architecture Locks for Section 14 Step 3D
 
