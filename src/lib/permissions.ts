@@ -41,6 +41,11 @@ export const Action = {
   REPORTS_VIEW_OWN: "REPORTS_VIEW_OWN",
   // Modules
   MODULES_MANAGE: "MODULES_MANAGE",
+  // Activity
+  // ARTICLE_STAFF holds this action, but the route layer enforces an
+  // own-actor scope (where.actorId = session.userId) for that role.
+  // FIRM_ADMIN / PARTNER / MANAGER see firm-wide activity within tenant.
+  ACTIVITY_VIEW: "ACTIVITY_VIEW",
   // Cross-firm (Platform Owner only, audited)
   CROSS_FIRM_IMPERSONATE: "CROSS_FIRM_IMPERSONATE",
 } as const;
@@ -78,6 +83,7 @@ const FIRM_ROLE_PERMISSIONS: Record<FirmRoleCode, ActionCode[]> = {
     Action.CLIENT_VIEW,
     Action.TEAM_MANAGE,
     Action.REPORTS_VIEW_ALL,
+    Action.ACTIVITY_VIEW,
   ],
   PARTNER: [
     Action.TASK_CREATE,
@@ -87,6 +93,7 @@ const FIRM_ROLE_PERMISSIONS: Record<FirmRoleCode, ActionCode[]> = {
     Action.CLIENT_VIEW,
     Action.TEAM_VIEW,
     Action.REPORTS_VIEW_ALL,
+    Action.ACTIVITY_VIEW,
   ],
   MANAGER: [
     Action.TASK_CREATE,
@@ -96,12 +103,14 @@ const FIRM_ROLE_PERMISSIONS: Record<FirmRoleCode, ActionCode[]> = {
     Action.CLIENT_VIEW,
     Action.TEAM_VIEW,
     Action.REPORTS_VIEW_ALL,
+    Action.ACTIVITY_VIEW,
   ],
   ARTICLE_STAFF: [
     Action.TASK_ADD_NOTE,
     Action.CLIENT_VIEW,
     Action.TEAM_VIEW,
     Action.REPORTS_VIEW_OWN,
+    Action.ACTIVITY_VIEW,
   ],
 };
 

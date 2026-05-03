@@ -1,13 +1,13 @@
 # CURRENT_STATUS.md - PracticeIQ
 
-Last updated: 2026-04-30 (post Section 14 Step 3B closure, C-2026-04-30-18)
+Last updated: 2026-05-03 (post Section 14 Step 3C closure, C-2026-05-03-01)
 Update rule: edit after every milestone, audit, or stage shift.
 
 ## Repo Health
 
 - Branch: `main` (in sync with `origin/main`)
-- Latest pushed commit: `093a816` (`Section 14 Step 3A foundation - permissions map + API helpers + zod`)
-- Step 3B (clients API + permissions amendment + status doc refresh) committed locally; push pending Pankaj approval.
+- Latest pushed commit: `d1fad2f` (`Section 14 Step 3B - Add clients read routes`)
+- Step 3C (activity read route + permissions amendment + status doc refresh) committed locally; push pending Pankaj approval.
 - Live URL: `https://practice-iq.netlify.app/` (Netlify auto-deploys from GitHub `main`)
 - Build: `npm run uat:check` passing per Pankaj's local verification (note: origin renamed `release:check` to `uat:check`)
 - Five Netlify env vars set: `DATABASE_URL`, `DIRECT_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
@@ -19,8 +19,8 @@ Update rule: edit after every milestone, audit, or stage shift.
 
 - Step 1 (Foundation cutover): **DONE**. `next.config.ts` flipped off static export, `netlify.toml` updated, `.env.example` documents the env-var contract, four memory files at app root.
 - Step 2 (Postgres + Prisma wiring): **PARTIALLY DONE**. Origin shipped Postgres provider + first migration + `src/lib/prisma.ts`. Pending: `AllowedFirmDomain` (origin used `Firm.emailDomain` single-string instead per D-2026-04-30-15), `UserNotificationPreference`, `NotificationLog`, `NotificationChannel` and `NotificationType` enums.
-- Step 3 (API layer scaffold): **PARTIALLY DONE**. Sub-steps 3A (permissions map + API helpers, C-17, commit `093a816`) and 3B (clients routes + soft-delete, C-18) **DONE**. Origin's 5 firm / tenant routes still present, untouched. Pending: 3C activity read, 3D tasks, 3E team, 3F modules.
-- Step 4 (Supabase Auth + tenant-guard + RBAC): **PARTIALLY DONE**. Origin shipped `src/lib/tenant-guard.ts` (53 lines, email / domain validation). Step 3A added the codified permission matrix at `src/lib/permissions.ts` (Section 10). Pending: full Supabase Auth replacing the hardcoded SHA-256 password digest, hardening of origin's existing 5 routes, allowed-domain enforcement at the API layer.
+- Step 3 (API layer scaffold): **PARTIALLY DONE**. Sub-steps 3A (permissions map + API helpers, C-17, commit `093a816`), 3B (clients routes + soft-delete, C-18, commit `d1fad2f`), and 3C (activity read route, C-2026-05-03-01) **DONE**. Origin's 5 firm / tenant routes still present, untouched. Pending: 3D tasks, 3E team, 3F modules.
+- Step 4 (Supabase Auth + tenant-guard + RBAC): **PARTIALLY DONE**. Origin shipped `src/lib/tenant-guard.ts` (53 lines, email / domain validation). Step 3A added the codified permission matrix at `src/lib/permissions.ts` (Section 10); 3C extended it with `Action.ACTIVITY_VIEW`. Pending: full Supabase Auth replacing the hardcoded SHA-256 password digest, hardening of origin's existing 5 routes, allowed-domain enforcement at the API layer.
 - Step 5 (Persistence cutover): **NOT STARTED**. UI still uses localStorage; API routes exist but UI does not consume them yet.
 
 ## What Is Working
@@ -41,22 +41,23 @@ Update rule: edit after every milestone, audit, or stage shift.
 - Five Netlify env vars configured.
 - Supabase project provisioned in Mumbai with first migration applied.
 - `npm run lint`, `npm run db:validate`, `npm run uat:check` all passing.
-- **Section 10 permission matrix codified** at `src/lib/permissions.ts` (PlatformRole / FirmRole / Action constants, `hasPermission`, `requirePermission`, UI label maps, role normalizers).
+- **Section 10 permission matrix codified** at `src/lib/permissions.ts` (PlatformRole / FirmRole / Action constants including `ACTIVITY_VIEW`, `hasPermission`, `requirePermission`, UI label maps, role normalizers).
 - **API helper foundation** at `src/lib/api-helpers.ts` (response envelopes, locked-by-default `requireAuth`, Zod-backed `parseJson`, deferred no-op `writeActivityLog`).
 - **Clients API** at `/api/clients` (GET list paginated + POST create) and `/api/clients/[id]` (GET one + PATCH update with soft-delete via `status: "INACTIVE"`). Tenant-isolated by `firmId`; cross-firm hits return 404; auth-gated and locked-by-default until Step 4.
+- **Activity API** at `/api/activity` (GET list paginated + filtered by `entityType` / `action` / `from` / `to`). Tenant-isolated by `firmId`; ARTICLE_STAFF server-scoped to own actor; PLATFORM_OWNER without firm context returns 400; auth-gated and locked-by-default until Step 4. Returns empty results until Step 4 lights up `writeActivityLog()`.
 
 ## What Is Partially Built
 
-- API layer - 5 firm / tenant routes exist (origin); clients route group landed in 3B; tasks / team / activity / modules route groups not yet.
+- API layer - 5 firm / tenant routes exist (origin); clients route group landed in 3B; activity read route landed in 3C; tasks / team / modules route groups not yet.
 - Auth - `tenant-guard.ts` (email / domain validation) and `permissions.ts` (Section 10 matrix) exist; Supabase Auth not yet replacing hardcoded password digest; `requireSession()` is a deliberate stub returning null until Step 4.
-- RBAC - role-based UI visibility implemented; permission matrix codified at API layer (3A) and consumed by clients routes (3B); origin's 5 routes not yet on the matrix (deferred to Step 4 per Decision 5).
+- RBAC - role-based UI visibility implemented; permission matrix codified at API layer (3A) and consumed by clients (3B) and activity (3C) routes; origin's 5 routes not yet on the matrix (deferred to Step 4 per Decision 5).
 - Email reminder structure - referenced in UI, not sending.
 - Notification preferences / log architecture - entities and enums not yet in schema (D-2026-04-30-10 work pending).
-- Audit trail - `ActivityLog` table exists; `writeActivityLog()` is a documented no-op until Step 4 supplies a real `actorId` (D-2026-04-30-15 Decision 4).
+- Audit trail - `ActivityLog` table exists; read route is live (3C) but `writeActivityLog()` is still a documented no-op until Step 4 supplies a real `actorId` (D-2026-04-30-15 Decision 4); reads will return empty results until then.
 
 ## What Is Missing
 
-- `tasks/`, `team/`, `activity/`, `modules/` API route groups.
+- `tasks/`, `team/`, `modules/` API route groups.
 - Supabase Auth replacing hardcoded SHA-256 password digest.
 - Hardening of origin's existing 5 routes (deferred to Step 4 per D-2026-04-30-15 Decision 5).
 - `AllowedFirmDomain` table (origin used single `Firm.emailDomain` instead; revisit when multi-domain support is needed).
@@ -76,7 +77,7 @@ Update rule: edit after every milestone, audit, or stage shift.
 4. Origin's `Firm.emailDomain` (single-string) instead of D-2026-04-30-10's planned `AllowedFirmDomain` table - acceptable for current single-firm prototype; revisit when commercial activation requires multi-domain firms.
 5. Hardcoded Platform Owner SHA-256 password digest still ships in the client bundle. Removed in Section 14 Step 4 when Supabase Auth lands.
 6. Compliance posture open (DPDP Act applicability, audit retention period, RLS configuration).
-7. New 3B routes are correctly locked-by-default (401 until Step 4) - this is the safety contract, not a defect. Confirm Step 4 lights them up before any UI consumes them.
+7. New 3B and 3C routes are correctly locked-by-default (401 until Step 4) - this is the safety contract, not a defect. Confirm Step 4 lights them up before any UI consumes them.
 
 ## Deployment Readiness
 
@@ -88,16 +89,15 @@ Update rule: edit after every milestone, audit, or stage shift.
 
 In execution order, gated by Plan → Approval → Execution → Test → Log:
 
-1. **Section 14 Step 3C - Activity read route** - thin GET endpoint over `ActivityLog` for the UI Activity Monitor. Reads only; no writes (writes still deferred per D-15 Decision 4).
-2. **Section 14 Step 3D - Tasks routes** - the largest route group (CRUD + status moves + notes + assignees). Plan-first; this one will be split across multiple commits.
-3. **Section 14 Step 3E - Team routes** - membership add / role-change / deactivate; reuses `permissions.ts` `TEAM_MANAGE` / `TEAM_VIEW`.
-4. **Section 14 Step 3F - Modules routes** - flag toggling per firm; PLATFORM_OWNER only.
-5. **Section 14 Step 4 - Supabase Auth + RBAC hardening** - replace hardcoded login with Supabase Auth, wire `requireSession()` to real session, harden origin's existing 5 routes onto `requireAuth`, light up `writeActivityLog()` and the Step 3 routes.
-6. **Decide on `Firm.emailDomain` vs `AllowedFirmDomain`** - confirm origin's single-string approach is acceptable or schedule the multi-domain extension (D-2026-04-30-15).
-7. **Decide on `release-data-guard.mjs` removal** - origin deleted; do we reinstate (with our regex + ignored-files setup) or accept origin's removal?
-8. **Continue Section 14 Step 2** - add `UserNotificationPreference`, `NotificationLog` entities and `NotificationChannel` / `NotificationType` enums to the schema (D-2026-04-30-10), or defer to Phase 2.
-9. **Begin Section 14 Step 5** - migrate UI from localStorage to API; one-time browser-side export endpoint; activate `ActivityLog` writes.
-10. **Split `src/app/page.tsx` into modules** (`NEXT_TASKS.md` item 4; regression-risk reduction before broader UI changes).
+1. **Section 14 Step 3D - Tasks routes** - the largest route group (CRUD + status moves + notes + assignees). Plan-first; this one will be split across multiple commits.
+2. **Section 14 Step 3E - Team routes** - membership add / role-change / deactivate; reuses `permissions.ts` `TEAM_MANAGE` / `TEAM_VIEW`.
+3. **Section 14 Step 3F - Modules routes** - flag toggling per firm; PLATFORM_OWNER only.
+4. **Section 14 Step 4 - Supabase Auth + RBAC hardening** - replace hardcoded login with Supabase Auth, wire `requireSession()` to real session, harden origin's existing 5 routes onto `requireAuth`, light up `writeActivityLog()` and the Step 3 routes (clients + activity).
+5. **Decide on `Firm.emailDomain` vs `AllowedFirmDomain`** - confirm origin's single-string approach is acceptable or schedule the multi-domain extension (D-2026-04-30-15).
+6. **Decide on `release-data-guard.mjs` removal** - origin deleted; do we reinstate (with our regex + ignored-files setup) or accept origin's removal?
+7. **Continue Section 14 Step 2** - add `UserNotificationPreference`, `NotificationLog` entities and `NotificationChannel` / `NotificationType` enums to the schema (D-2026-04-30-10), or defer to Phase 2.
+8. **Begin Section 14 Step 5** - migrate UI from localStorage to API; one-time browser-side export endpoint; activate `ActivityLog` writes.
+9. **Split `src/app/page.tsx` into modules** (`NEXT_TASKS.md` item 4; regression-risk reduction before broader UI changes).
 
 ## Validation Checklist (operational, before commit)
 
