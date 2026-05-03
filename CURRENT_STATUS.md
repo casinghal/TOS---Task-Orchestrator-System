@@ -1,6 +1,6 @@
 # CURRENT_STATUS.md - PracticeIQ
 
-Last updated: 2026-05-03 (post Section 14 Step 3C closure, C-2026-05-03-01; Pre-3D Product Architecture & SaaS Guardrail Scan adoption, C-2026-05-03-02; Governance File Maintenance & Independent Review Protocol adoption, C-2026-05-03-03; and Cost Discipline at Stage 0 adoption, C-2026-05-03-04)
+Last updated: 2026-05-03 (post Section 14 Step 3C closure, C-2026-05-03-01; Pre-3D Product Architecture & SaaS Guardrail Scan adoption, C-2026-05-03-02; Governance File Maintenance & Independent Review Protocol adoption, C-2026-05-03-03; Cost Discipline at Stage 0 adoption, C-2026-05-03-04; and External Threat Security & Platform Hardening Guardrails adoption, C-2026-05-03-05)
 Update rule: edit after every milestone, audit, or stage shift.
 
 ## Repo Health
@@ -16,6 +16,7 @@ Update rule: edit after every milestone, audit, or stage shift.
 - **Pre-3D guardrail scan adopted**: Section 14 Step 3D plan must consume MASTER_PROJECT.md Section 23 (TaskStatus / Priority canonical sets, transition matrix, reopen / cancel / closure rules, inactive user / client handling, cross-firm ID validation, audit event taxonomy, plan-tier feature codes, entitlement helper shape, Writing Assist deferred guardrails) as implementation constraints. See D-2026-05-03-02 and AGENTS.md G7.
 - **Governance protocol active**: Pre-commit five-file consistency check applies from C-2026-05-03-03 forward. Independent ChatGPT review is a named control input at major Section 14 transitions. See MASTER_PROJECT.md Section 24 and AGENTS.md G8.
 - **Cost discipline at Stage 0 active**: every recommendation that touches tooling, infrastructure, or spend uses the four-row template (Free / Paid / Recommendation / Trigger) per AGENTS G9. Detailed principle at MASTER_PROJECT.md Section 22.9. See D-2026-05-03-04.
+- **Security guardrails active**: Section 14 Step 3D and onward route planning consumes MASTER_PROJECT.md Section 25 (route-construction checklist, task-route specifics, Step 4 requirements, RLS / DB requirements, platform hardening, monitoring, future module security, G9 cost-discipline matrix, CA / CPA client-trust lens, Platform Ownership Register status, consumption rule) alongside Section 23. AGENTS G7 effective scope is extended to include Section 25 by D-2026-05-03-05; no new G10 added. See D-2026-05-03-05.
 
 ## Current Stage
 

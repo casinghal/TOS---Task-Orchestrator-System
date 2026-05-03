@@ -9,8 +9,8 @@
 | Owner | Pankaj Singhal, Avantage Partners |
 | App location | `02_App/tos-app/` |
 | Live URL | `https://practice-iq.netlify.app` (single-tenant prototype) |
-| Document version | v2.1 |
-| Last meaningful update | 2026-05-03 (post Cost Discipline at Stage 0, D-2026-05-03-04) |
+| Document version | v2.2 |
+| Last meaningful update | 2026-05-03 (post External Threat Security & Platform Hardening Guardrails, D-2026-05-03-05) |
 
 Update rule: edit only on architectural, product, or strategic change. Operational status lives in `CURRENT_STATUS.md`. Decisions in `DECISION_LOG.md`. Implementation history in `CHANGE_LOG.md`.
 
@@ -838,3 +838,308 @@ ChatGPT (or any other independent LLM Pankaj uses for second-opinion review) is 
 ### 24.7 Section 14 non-impact
 
 This protocol does NOT reorder, weaken, delay, or override Section 14. The locked execution sequence remains: Step 3D Tasks → 3E Team → 3F Modules → Step 4 Auth + RBAC → Step 5 Persistence cutover. The pre-commit consistency check adds approximately 30 seconds to each governance commit and catches drift before it ships. 3D will be the first execution wave run under this protocol.
+
+## 25. External Threat Security & Platform Hardening Guardrails
+
+Minimum external-threat security and platform-hardening guardrails that PracticeIQ must follow from Section 14 Step 3D onward, especially before Step 4 Auth / RBAC, Step 5 Persistence cutover, friendly pilot, and real client data. Includes a CA / CPA client-trust and failure-scenario lens (25.12), a G9 cost-discipline matrix (25.11), a Platform Ownership Register status clarification (25.13), and a consumption rule (25.14). Adopted per D-2026-05-03-05. Does NOT reorder Section 14.
+
+### 25.1 Current security posture
+
+**What is already protected:**
+
+- Every new route returns 401 by design (`requireSession()` is null until Step 4)
+- Tenant isolation enforced at the route layer (`where: { firmId: session.firmId }`)
+- Permission matrix codified at `src/lib/permissions.ts` with context-aware rules (`isCreator` / `isReviewer` / `isOwnTask`)
+- Cross-firm hits return 404 — no existence leakage
+- Zod validation on all inputs
+- Generic 500 messages on existing catch paths
+- Three security headers shipped via `netlify.toml`: `X-Frame-Options DENY`, `X-Content-Type-Options nosniff`, `Referrer-Policy strict-origin-when-cross-origin`
+- Service-role key on Netlify env, server-only (not in client bundle)
+- HTTPS via Netlify default (TLS 1.3)
+
+**What is only planned:**
+
+- Supabase Auth replacing hardcoded SHA-256 digest (Step 4)
+- `requireSession()` wired to real session (Step 4)
+- `writeActivityLog()` made real (Step 4)
+- RLS policies on tenant-scoped tables (Section 22.5 pre-real-client-data)
+- Allowed-domain enforcement (Step 4)
+- Audited Platform Owner impersonation (Step 4)
+
+**What remains unsafe for real external users:**
+
+- Hardcoded Platform Owner SHA-256 password digest in client bundle (Risk #5)
+- localStorage as UI source of truth (Risk #3)
+- No RLS — defence-in-depth missing (Risk #10)
+- No audit trail writes — `writeActivityLog()` no-op (Risk #8)
+- No Content Security Policy (CSP) header
+- No request rate limiting
+- No failed-auth monitoring
+- No incident log
+
+**Why locked-by-default 401 is correct until Step 4.** The 401 contract is the safety floor. Every route returns 401 today regardless of payload because `requireSession()` returns null and `requireAuth()` short-circuits before any DB read. There is no path through which untrusted user input reaches Prisma queries. When Step 4 wires real auth, the same routes light up with the permission and tenant checks already in place.
+
+### 25.2 External attacker model
+
+| Actor | Vector | Today's exposure | Post-Step 4 mitigation |
+|-------|--------|------------------|------------------------|
+| Unauthenticated internet user | Direct API calls | Blocked by 401 | Auth-gated; RLS as defence in depth |
+| Authenticated firm user → other firm's data | Cross-firm IDs in payloads | App-layer `firmId` filter | App + RLS |
+| Lower-role user → higher-role action | Skip UI, hit API directly | `requirePermission` server-side | Same |
+| Malicious insider at firm | Legitimate access used to harm | ActivityLog (post-Step 4) + permission matrix | Same + audit review cadence |
+| Compromised account | Stolen credentials | Strong password reqs (Supabase) | + MFA at paid launch |
+| Bot / API abuse | Scraping, brute force | Netlify default DDoS | + rate limits at friendly pilot (see 25.11) |
+| Future file-upload attacker | Malware, malformed files, path traversal | N/A — Section 21.2 pre-conditions | When CP unlocks |
+| AI / Writing Assist data exposure | Sensitive data in prompts | N/A — Section 23.9 deferred | When WA unlocks |
+
+### 25.3 OWASP-style risk coverage
+
+| OWASP | PracticeIQ posture | Required action |
+|-------|--------------------|-----------------|
+| A01 Broken Access Control | Tenant filter + permission matrix + cross-firm 404 + ARTICLE_STAFF own-actor scope | Continue patterns in 3D; RLS pre-real-client-data |
+| A02 Cryptographic Failures | Hardcoded SHA-256 (Risk #5); HTTPS via Netlify | Step 4 brings Supabase Auth |
+| A03 Injection | All DB access via Prisma (parameterized); Zod validation; no raw SQL | Continue Prisma-only; lock "no `$queryRaw` / `$executeRaw` without explicit approval" |
+| A04 Insecure Design | Locked-by-default 401; Section 23 pre-locked operating model; G7 / G8 / G9 protocols | Continue Plan-First; security review per route group |
+| A05 Security Misconfiguration | 3 security headers shipped; service-role key server-only | Add CSP + Permissions-Policy before friendly pilot; verify HSTS |
+| A06 Vulnerable / Outdated Components | Next.js 16, React 19, Prisma 6.19, Zod | `npm audit` policy; Dependabot at Stage 0.5 (free) |
+| A07 Authentication Failures | Hardcoded SHA-256; no MFA; no password reset | Step 4 brings Supabase Auth; MFA at paid launch (free in Supabase) |
+| A08 Software / Data Integrity Failures | Netlify auto-deploy from GitHub `main`; no SRI; no CI signing | Branch protection on `main` at paid launch (free); SRI when external CDN |
+| A09 Security Logging / Monitoring Failures | ActivityLog table exists but writes are no-op; no security event log; Netlify and Supabase default logs only | Step 4 lights up writes; failed-auth monitoring + incident log before friendly pilot (free) |
+| A10 SSRF | No outbound HTTP from PracticeIQ today | When integration phase (Phase 5) ships, allowlist external hosts; no internal IPs |
+
+### 25.4 Security rules for all API routes from 3D onward
+
+Permanent route-construction checklist:
+
+1. `requireAuth()` is the first non-DB-availability gate; nothing executes before it
+2. Server-side `requirePermission` check; never trust UI gating
+3. Tenant filter (`where.firmId = session.firmId`) on every read and write
+4. Cross-firm ID validation for every referenced ID; return **404** on mismatch (no existence leak)
+5. **400** only for missing firm context (`session.firmId == null`)
+6. **422** for Zod validation errors with `issues` in `details`
+7. No PLATFORM_OWNER all-firm access without audited impersonation flow
+8. Zod validation on every input — body, query params, route params
+9. Maximum length on every user text field (25.5 specifies 3D values)
+10. No raw SQL via Prisma (`$queryRaw` / `$executeRaw`) without explicit per-action approval
+11. No secrets in responses or logs (no env vars, no internal IDs of other firms, no PII in error messages)
+12. Generic **500** messages: `"Unable to <verb> <entity>."` — never include `error.message` or stack
+13. No stack traces or internal error details in API responses
+14. `try / catch` around every Prisma call; map to 500 with generic message; `console.error` server-side
+15. Cross-firm 404 attempts logged via `console.warn` server-side (cheap, no schema impact)
+
+### 25.5 Task-route-specific security requirements for 3D
+
+- `taskId` belongs to `session.firmId` on every endpoint
+- `clientId` belongs to firm AND is `ACTIVE` on POST
+- `reviewerId` belongs to firm AND is an active `FirmMember` on POST and reviewer-change PATCH
+- Every `assigneeId` belongs to firm AND is an active `FirmMember` on POST and assignee mutation
+- ARTICLE_STAFF cannot reassign / close / cancel; can only act on own tasks for status moves to `UNDER_REVIEW`
+- PARTNER / MANAGER edit / close requires `isCreator` or `isReviewer` context computed server-side
+- Status transitions strictly use `TASK_STATUS_TRANSITIONS` map from `src/lib/task-constants.ts` (created during 3D)
+- close / reopen / cancel use dedicated POST endpoints (not PATCH discriminator)
+- Length caps locked in `task-constants.ts`: title 200; description 4000; notes / remarks / reasons 4000; assignees per task max 50; pagination max 200 (Decision G in 3D plan)
+- Zod `.strict()` on all POST and PATCH body schemas (rejects unknown fields with 422 — Decision H in 3D plan)
+- ActivityLog `metadataJson` for free-text reasons stores `noteId` reference rather than the reason text (Decision I in 3D plan; reason text lives on the firm-scoped `TaskNote` row)
+- All user text stored as plain `String`; UI rendering must never use `dangerouslySetInnerHTML`; Next.js JSX escapes by default
+- Task list filters use exact match where possible; no LIKE wildcards over user input that could enable timing-based inference
+
+### 25.6 Step 4 security requirements
+
+- Supabase Auth replaces hardcoded SHA-256 digest (removes Risk #5)
+- `requireSession()` wired to real Supabase session — routes light up
+- Origin firm / tenant routes (5 routes from cloud Codex) hardened onto `requireAuth` (per D-2026-04-30-15 Decision 5)
+- Service-role key strictly server-only — never in `NEXT_PUBLIC_*` env, never in client bundle
+- Session-to-FirmMember resolution: `session.user.id → FirmMember(userId, firmId, firmRole)` lookup populates `SessionUser`
+- Allowed-domain enforcement at API layer (per D-2026-04-30-10)
+- Audited Platform Owner impersonation: separate flow that writes ActivityLog `CROSS_FIRM_IMPERSONATE` with target firmId
+- `writeActivityLog()` made real — lights up 3B / 3C / 3D / 3E / 3F call sites
+- Failed auth attempts logged — hooks for rate-limit triggers and suspicious-pattern detection
+
+### 25.7 Database and RLS requirements
+
+- **RLS REQUIRED before real client data** (Section 22.5)
+- All tenant-scoped tables get policies: `Firm`, `FirmMember`, `Client`, `Task`, `TaskAssignee`, `TaskNote`, `ActivityLog`, `Plan`, `FirmSubscription`, `FirmModuleAccess`, `AllowedFirmDomain` (when added)
+- App-level `firmId` checks remain even after RLS — defence in depth
+- Service-role key bypasses RLS; usage controlled (server-only; audit any use; document why)
+- No production database reset (G6 holds)
+- No destructive ops without explicit per-action approval (G6 holds)
+- Backup / restore per Section 22.4 trigger points (see 25.11 four-row treatment)
+
+### 25.8 Platform / config hardening
+
+| Layer | Today | Required | Cost |
+|-------|-------|----------|------|
+| Security headers | X-Frame-Options DENY; X-Content-Type-Options nosniff; Referrer-Policy strict-origin-when-cross-origin (in `netlify.toml`) | Add CSP (default-src 'self' starting point) before friendly pilot; add Permissions-Policy; verify HSTS | Free — `netlify.toml` config |
+| HTTPS / TLS | Netlify default TLS 1.3 | Confirm HSTS header before friendly pilot | Free — Netlify default |
+| Env vars | Five Netlify env vars set | Service-role key server-only; verify no `NEXT_PUBLIC_*` carries secrets | Free |
+| Secrets in Git | `.env.local` gitignored | Lock: never in markdown docs, chat, screenshots, or logs | Free — discipline |
+| Dependency audit | None | `npm audit` policy + Dependabot | Free — see 25.11 |
+| Branch protection | None | Require PR reviews on `main` | Free — see 25.11 |
+| Admin access | Single founder | Least-privilege as product matures (per Section 22) | Free — discipline |
+
+### 25.9 Monitoring and incident response
+
+- **Failed auth monitoring**: Supabase default + custom log when Step 4 lands (free)
+- **API error monitoring**: Netlify function logs (free); upgrade trigger in 25.11
+- **Suspicious cross-firm access attempts**: log every 404 from cross-firm ID mismatch via `console.warn` (free; no schema)
+- **ActivityLog review cadence**: weekly post-Step 4; daily at scale (free — manual SQL queries)
+- **Incident log**: simple markdown file at `02_App/tos-app/INCIDENT_LOG.md` once Stage 0.5 (free)
+- **Backup / restore**: linked to Section 22.4 trigger points (see 25.11 four-row treatment); restore drill mandatory before friendly pilot
+- **Severity classification**: P0 = data loss / breach; P1 = mass auth failure / data exposure; P2 = single-firm error storm; P3 = individual user error (free — markdown convention)
+
+### 25.10 Future module security
+
+- **Client Portal + Document Upload**: governed by Section 21.2 (11 pre-conditions). No bypass.
+- **Writing Assist / AI**: governed by Section 23.9 (PII scrub, no client-name embedding, audit every call, per-firm opt-in, usage caps, no document/file processing)
+- **Payment / paywall**: future only; PCI-DSS considerations when card data flows; never store card data ourselves (provider-hosted forms)
+- **Integrations / outbound webhooks**: future only; SSRF defence (allowlisted hosts, no internal IPs, no metadata endpoints)
+
+### 25.11 Cost-discipline matrix under G9
+
+Per AGENTS G9 + Section 22.9, every spend-touching security item enumerated with the four-row template (Free / built-in / open-source option · Paid option · Recommendation · Trigger point for upgrade). Vendor names are examples only; not locked vendor decisions. Prices, free-tier limits, and quotas are NOT hardcoded — verify from official vendor sources at decision time.
+
+**25.11.1 Database backup / PITR**
+- Free / built-in / open-source: Manual `pg_dump` to free object storage (Supabase Storage or equivalent) on a daily schedule. Restore tested at least once before friendly pilot.
+- Paid: Supabase Pro PITR (or equivalent managed Postgres provider's PITR feature).
+- Recommendation: `pg_dump` + free object storage through Stage 0.5; managed PITR at first paying firm.
+- Trigger: First paying firm (Section 22.4) OR pilot data sensitivity that requires sub-day RPO.
+
+**25.11.2 Application error monitoring**
+- Free / built-in / open-source: Netlify function logs + `console.error` server-side; Supabase log explorer for DB errors.
+- Paid: Sentry / similar (typically tiered by event volume).
+- Recommendation: Netlify + Supabase default logs through friendly pilot.
+- Trigger: 3 active firms OR first reported user-facing incident that default logs failed to surface in time.
+
+**25.11.3 Log aggregation / SIEM**
+- Free / built-in / open-source: Netlify + Supabase native log views; `INCIDENT_LOG.md` for cross-system correlation.
+- Paid: Datadog / similar SIEM.
+- Recommendation: Defer entirely. Stage 0 / 0.5 / Stage 1+ to ~5 paying firms can run on native log views.
+- Trigger: 5 paying firms with multi-incident frequency that manual correlation cannot keep up with.
+
+**25.11.4 Rate limiting / WAF**
+- Free / built-in / open-source: Netlify default DDoS protection. Optionally evaluate a free DNS / WAF / rate-limit option such as Cloudflare free tier or equivalent before friendly pilot. Verify current free-tier capabilities from official vendor sources at decision time.
+- Paid: Cloudflare Pro / Business; AWS WAF; Netlify enterprise; etc.
+- Recommendation: Before friendly pilot, evaluate a free DNS / WAF / rate-limit layer in front of the live URL. **Note**: fronting Netlify with such a service typically requires a custom domain (e.g., `app.practiceiq.in`) — it generally cannot be applied to the `netlify.app` subdomain. If a custom domain is not yet set up, this evaluation pairs with the Section 22.4 "Company-owned custom domain (Pre Stage-0.5)" trigger.
+- Trigger (paid): sustained attack pattern that the chosen free-tier option cannot mitigate, OR first paying firm requesting WAF SLA.
+
+**25.11.5 Secret scanning**
+- Free / built-in / open-source: GitHub default secret scanning; `git-secrets` pre-commit hook (open-source).
+- Paid: GitGuardian / similar commercial scanner.
+- Recommendation: Enable GitHub default secret scanning now (free toggle); add `git-secrets` pre-commit hook before Stage 0.5.
+- Trigger: First leaked secret incident OR multi-developer team with frequent commits.
+
+**25.11.6 Penetration testing**
+- Free / built-in / open-source: Self-test using OWASP ZAP (open-source) before friendly pilot.
+- Paid: Third-party pen test (typically one-time engagement).
+- Recommendation: Self-test with ZAP before friendly pilot. Defer paid pen test until paid launch.
+- Trigger: First paying firm requiring formal pen test report; OR regulatory requirement.
+
+**25.11.7 SSO / SAML enterprise auth**
+- Free / built-in / open-source: Supabase Auth email + password; free OAuth providers (Google, GitHub, etc.) included with Supabase Auth.
+- Paid: Supabase Pro (or higher) for SAML SSO; WorkOS / similar.
+- Recommendation: Email + password through Step 4. Add free OAuth providers at Stage 0.5 if pilot firms want them. Defer SAML.
+- Trigger: First paying firm with > 20 users requiring SAML / SSO.
+
+**25.11.8 Email transactional sending (security notifications)**
+- Free / built-in / open-source: Supabase Auth's built-in email (password reset, magic link, confirm email) at no extra cost on Supabase free tier (with rate limits). Default Supabase sender domain is acceptable for Stage 0 development.
+- Paid: Provider paid tier (Resend / SES / Postmark / similar) with custom sender domain.
+- Recommendation: Supabase built-in through Step 4 + internal testing. Move to paid provider with custom sender domain BEFORE friendly pilot — pilot users should not receive reset emails from a Supabase-default domain.
+- Trigger: Friendly pilot invitation goes out (so password resets arrive from a branded sender). The earliest paid item.
+
+**25.11.9 Uptime monitoring**
+- Free / built-in / open-source: A free uptime monitor such as UptimeRobot or equivalent. Verify current free-tier interval and monitor count from official vendor sources at decision time.
+- Paid: Pingdom / Better Uptime / similar paid tier.
+- Recommendation: Set up a free uptime monitor before friendly pilot.
+- Trigger: SLA commitments to paying firms that require sub-minute monitoring.
+
+**25.11.10 Vulnerability scanning beyond `npm audit`**
+- Free / built-in / open-source: `npm audit` in CI / locally; GitHub Dependabot alerts; OSV-Scanner (open-source).
+- Paid: Snyk / similar commercial scanner.
+- Recommendation: Stay on `npm audit` + Dependabot through paid launch.
+- Trigger: Multi-language stack OR audit / compliance requirement (SOC2 / ISO27001) that requires Snyk-class evidence.
+
+**Net new Stage 0 spend from this section: zero.** First paid item triggers at friendly pilot (25.11.8 transactional email). All other paid items deferred to first paying firm or later.
+
+### 25.12 CA / CPA Client Trust & Failure Scenario Risk Lens
+
+Reviews PracticeIQ from the perspective of a CA / CPA firm client, not only from a technical-security perspective. Reinforces and operationalises existing controls in Sections 21.2, 22, 23, 24.
+
+**25.12.A Top 12 CA / CPA client concerns**
+
+| # | Client question | Current coverage | Gap | Action | Timing |
+|---|-----------------|------------------|-----|--------|--------|
+| 1 | "Is our firm's confidential data really kept private?" | Tenant filter; cross-firm 404; permission matrix; 401-by-default | RLS not configured; ActivityLog writes deferred | RLS policies; `writeActivityLog()` made real | Step 4 + before Step 5 |
+| 2 | "Can another CA firm see our data, even by accident?" | App-layer `firmId` filter | Defence-in-depth (RLS) missing | RLS policies; service-role key usage controlled and audited | Before Step 5 / before friendly pilot |
+| 3 | "Are our end-clients' personal data (PAN, GSTIN, mobile, email) protected?" | Schema enforces plain string fields; HTTPS in transit | No field-level encryption; no PII redaction in logs / AI prompts | PII handling guardrails per Section 23.9; field-level review before document upload (21.2) | Before friendly pilot + Section 21.2 / 23.9 enforcement when modules unlock |
+| 4 | "Whose data is it — ours or yours?" | No T&C published yet | Data ownership clause missing | T&C + DPA: firm owns data; PracticeIQ is processor | Before paying clients (Section 22.6) |
+| 5 | "If we leave, can we take all our data in a usable format?" | Section 22.6 lists "Data export endpoint operational" | Endpoint not built | One-time export endpoint (downloadable structured bundle) | Before paying clients (Section 22.6) |
+| 6 | "Can we prove who did what when?" | ActivityLog table + canonical actions in Section 23.6 | `writeActivityLog()` no-op until Step 4 | Step 4 lights up writes | Step 4 |
+| 7 | "Can we control which staff member sees / does what?" | Section 10 permission matrix at `permissions.ts`; 4 firm roles + Platform Owner | UI gating only; API enforcement comes with Step 4 | Step 4 wires real session into existing `requireAuth` | Step 4 |
+| 8 | "What happens if PracticeIQ is down on a tax-filing deadline?" | Netlify + Supabase default uptime | No SLA, no status page, no uptime monitoring | Free uptime monitor (25.11.9); `INCIDENT_LOG.md`; severity classification | Before friendly pilot |
+| 9 | "If our data is lost, can you restore it from backup?" | Supabase manages base storage redundancy | No PITR; no tested restore drill | Manual `pg_dump` to free object storage + tested restore drill (25.11.1) | Before friendly pilot (free path); first paying firm (managed PITR) |
+| 10 | "Will our client data ever be sent to AI providers?" | Section 19 principles; Section 23.9 Writing Assist guardrails | Writing Assist deferred; no current AI calls happen | Section 23.9 PII scrub + per-firm opt-in + audit when feature unlocks | When `WRITING_ASSIST` ships (Phase 4 / 5) |
+| 11 | "If we upload a signed engagement letter, who else sees it?" | Section 21.2 (11 pre-conditions) | Document Upload deferred; no current upload path | Section 21.2 pre-conditions all met before Document Upload ships | When CP / Document Upload module unlocks |
+| 12 | "Are you legally compliant for India? DPDP? Professional secrecy?" | Section 22.5 names DPDP applicability assessment; 22.6 names DPA template | Compliance posture open (Risk #6) | DPDP Act applicability assessed; audit retention period decided; T&C + DPA published | Before friendly pilot (assessment); before paying clients (DPA) |
+
+**25.12.B Top 10 failure scenarios**
+
+| # | What could go wrong | Impact | Current control | Missing control | Stage when fixed |
+|---|---------------------|--------|-----------------|-----------------|------------------|
+| 1 | Cross-firm data leakage — query forgets `firmId` filter | Catastrophic; privacy breach, regulator notification, client trust collapse | App-layer filter; cross-firm 404 pattern; code review per route | RLS; automated test for `firmId` enforcement | Before Step 5 (RLS) + 3D / 3E / 3F (pattern discipline) |
+| 2 | Hardcoded login used by external users — SHA-256 digest reverse-engineered | Total platform compromise | None today | Removal in Step 4 when Supabase Auth lands (Risk #5) | Step 4 (mandatory before any external pilot) |
+| 3 | Real data entered before Step 5 Persistence — friendly pilot user types real client data into localStorage UI | Permanent data loss for the firm; reputational damage | UI uses localStorage (Risk #3); 401-by-default APIs prevent persistence | Hard rule that no friendly pilot starts until Step 5 closes (Section 22.5) | Before friendly pilot (Section 22.5 enforcement) |
+| 4 | Accidental deletion / cancellation without audit | Operational frustration; possible client complaint; cannot reconstruct | Cancel is terminal but requires non-empty reason note (Section 23.3); Section 23.6 audit taxonomy | `writeActivityLog()` no-op until Step 4; Decision I metadataJson policy | Step 4 (audit lights up) + Decision I |
+| 5 | Unauthorized staff action — ARTICLE_STAFF hits PATCH directly to close someone else's task | Workflow integrity broken | Section 10 permission matrix; `permissions.ts` enforces `TASK_CLOSE` requires `isReviewer` | Step 4 wires real session so existing checks fire | Step 4 (existing checks light up) |
+| 6 | Sensitive document upload too early — Document Upload turns on before Section 21.2 pre-conditions | Confidentiality breach; possible regulator action | Section 21.2 lists 11 mandatory pre-conditions; module flag OFF by default | None — gating already exists | Locked at Section 21.2; will not unlock until all 11 met |
+| 7 | Backup exists but restore untested — `pg_dump` runs nightly but `pg_restore` never attempted | Permanent data loss; client trust collapse | None today | Quarterly restore drill from real backup to scratch DB; documented in `INCIDENT_LOG.md` | Before friendly pilot (25.11.1 explicitly names "restore tested at least once") |
+| 8 | Personal account ownership failure — Pankaj loses access to GitHub / Netlify / Supabase | Total continuity failure; pilot firms abandoned | Personal accounts noted in Section 22.2 as Stage 0 acceptable; Platform Ownership Register template at 22.7 | Recovery codes documented; emergency access owner named; Register populated | Before friendly pilot — see 25.13 |
+| 9 | AI / Writing Assist leaks client context | Confidentiality breach across multiple firms simultaneously | Section 23.9 guardrails; module flag `WRITING_ASSIST` OFF by default | Feature not built yet | Locked at Section 23.9; will not unlock until guardrails implemented and tested |
+| 10 | Inability to export / delete client data — paying firm requests data export OR right to be forgotten | Regulatory non-compliance (DPDP); contract breach; public complaint | Section 22.6 names export and deletion paths as pre-paid-client requirements | Endpoints not built yet | Before paying clients (Section 22.6) |
+
+**25.12.C Comparison with existing plan**
+
+| Concern / scenario domain | Section 21.2 | Section 22 | Section 23 | Section 24 | CURRENT_STATUS |
+|---------------------------|--------------|------------|------------|------------|----------------|
+| Confidentiality / tenant isolation | covers Document Upload only | 22.5 RLS pre-real-client-data | route-layer `firmId` codified | catches drift | Risk #10 named |
+| Data ownership / export / deletion | n/a | 22.6 names all three | n/a | n/a | not in Repo Health bullet |
+| Audit trail | n/a | n/a | 23.6 taxonomy locked | n/a | Risk #8 named |
+| User access control | n/a | n/a | 23.5 cross-firm ID + permission | n/a | Section 10 referenced |
+| Reliability / downtime | n/a | 22.4 paid plan triggers | n/a | n/a | none |
+| Backup / restore | n/a | 22.4 PITR trigger; 22.5 backup confirmation | n/a | n/a | Risk #11 named |
+| AI / Writing Assist | n/a | n/a | 23.9 guardrails | n/a | none |
+| Document upload | 11 pre-conditions | n/a | n/a | n/a | none |
+| Legal / compliance | n/a | 22.5 DPDP; 22.6 DPA | n/a | n/a | Risk #6 named |
+| Personal account failure | n/a | 22.7 register template | n/a | n/a | covered by 25.13 |
+
+**25.12.D Required additions (folded into Section 25 / cross-references)**
+
+The lens does not introduce wholly new categories. It produces these explicit Section 25 guardrails (folded inline above):
+
+- Restore drill before friendly pilot (25.9 + 25.11.1)
+- Platform Ownership Register populated before friendly pilot (25.13)
+- Data export + deletion endpoints operational before paying clients (cross-reference to Section 22.6)
+- Quarterly restore drill cadence post first paying firm (25.9 cadence)
+
+All four are operational discipline — zero new spend.
+
+### 25.13 Platform Ownership Register status (clarification)
+
+The Platform Ownership Register template lives in Section 22.7. Its **population** is governed as follows:
+
+- **Population remains deferred during Stage 0.** This was approved as Option A in D-2026-05-03-01 to let the Pilot-to-SaaS Scaling Guardrails framework land without forcing the founder to dictate account emails, recovery methods, and billing owner immediately.
+- **Population becomes mandatory before friendly pilot / Stage 0.5.** The CA / CPA client-trust lens (25.12 Failure #8) shows why: a personal-account ownership failure at Stage 0.5 with real pilot users abandons those pilots indefinitely. Continuity requires the register be populated and the recovery paths documented before any external user is invited.
+
+**This is not a contradiction of Section 22.7.** Section 22.7 states the population is deferred without specifying the trigger to populate. Section 25.13 names the trigger: friendly pilot / Stage 0.5. The two sections work together — Stage 0 keeps the Register as a template; Stage 0.5 promotion is blocked until the Register is populated and recovery is documented.
+
+### 25.14 Section 25 consumption rule (and non-impact)
+
+**Consumption rule:**
+
+- Section 25 must be consumed by future API and entity route planning **alongside Section 23**.
+- Section 14 Step 3D Tasks, Step 3E Team, Step 3F Modules, Step 4 Auth + RBAC, and Step 5 Persistence cutover plans must consider Section 25 security guardrails where relevant.
+- AGENTS G7 already requires the agent to consume canonical sections before route plans. **D-2026-05-03-05 extends G7's effective scope to include Section 25** alongside Section 23. No new AGENTS G10 is required.
+- Where a route group plan touches a Section 25 guardrail (auth, tenant isolation, cross-firm IDs, audit, paywall entitlement, error handling, length caps, monitoring, backup), the plan turn must cite the relevant 25.x subsection as the source of its constraint. Conflicts surface as MCQs requiring explicit Pankaj approval.
+
+**Section 14 non-impact:**
+
+This section does NOT reorder, weaken, delay, or override Section 14. The locked execution sequence remains: Step 3D Tasks → 3E Team → 3F Modules → Step 4 Auth + RBAC → Step 5 Persistence cutover. 3D will be the first execution wave run with Section 25 as canonical reference alongside Section 23.
