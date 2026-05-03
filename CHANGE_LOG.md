@@ -376,3 +376,27 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
   - No commits / pushes by agent.
 - **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave; will be run as part of the 3D wave when code lands.
 - **Status**: completed pending Pankaj's commit and push approval.
+
+---
+
+## C-2026-05-03-03 - Governance File Maintenance & Independent Review Protocol adopted
+
+- **Date**: 2026-05-03
+- **Task**: Documentation-only wave. Adopt the Governance File Maintenance & Independent Review Protocol as `MASTER_PROJECT.md` Section 24, with new `AGENTS.md` rule G8, new `DECISION_LOG.md` entry D-2026-05-03-03, new `CHANGE_LOG.md` entry (this), and new marker bullet in `CURRENT_STATUS.md` Repo Health. The protocol locks the Tier 1 governance file pack, the 8 mandatory synchronization rules, the 11-point pre-commit consistency check (with GREEN / YELLOW / RED reporting and standardised trigger wording scoped to commit-grade waves), and the independent ChatGPT review gate as a control input at named milestones.
+- **Files changed**:
+  - `MASTER_PROJECT.md` - **(a) New Section 24** (7 subsections covering: 24.1 Tier 1 control pack; 24.2 Tier 2 on-demand review files; 24.3 canonical role of each Tier 1 file; 24.4 eight mandatory synchronization rules; 24.5 eleven-point pre-commit consistency check with the standardised trigger wording and GREEN / YELLOW / RED result reporting; 24.6 ChatGPT review gate triggers and rules; 24.7 Section 14 non-impact statement). **(b) Section 0** Document version bumped from v1.9 to v2.0; Last-meaningful-update line refreshed to "2026-05-03 (post Governance File Maintenance & Independent Review Protocol, D-2026-05-03-03)". Prior Section 22 and Section 23 history remains traceable through the DECISION_LOG references (D-2026-05-03-01 and D-2026-05-03-02).
+  - `AGENTS.md` - new rule `G8 - Tier 1 governance file maintenance + pre-commit consistency check` in Section 9 after G7. Codifies the pre-commit check trigger using the standardised wording (commit-grade waves only; not every chat response or exploratory discussion) and confirms ChatGPT review is a control input, not approval.
+  - `DECISION_LOG.md` - new entry `D-2026-05-03-03 - Governance File Maintenance & Independent Review Protocol adopted` capturing Decision / Why (the recent staleness failures named explicitly: Section 8 sqlite-when-Postgres, Section 14 Step 3 / 4 stale, Section 16 Risk #4 sqlite, CURRENT_STATUS push-pending after push) / Alternatives rejected (5 alternatives covered including the over-formalisation risk that motivates the standardised trigger wording) / Impact.
+  - `CURRENT_STATUS.md` - **(a)** new bullet under Repo Health: "Governance protocol active: Pre-commit five-file consistency check applies from C-2026-05-03-03 forward. Independent ChatGPT review is a named control input at major Section 14 transitions. See MASTER_PROJECT.md Section 24 and AGENTS.md G8." **(b)** Last-updated header line refreshed to also cite this wave: "Last updated: 2026-05-03 (post Section 14 Step 3C closure, C-2026-05-03-01; Pre-3D Product Architecture & SaaS Guardrail Scan adoption, C-2026-05-03-02; and Governance File Maintenance & Independent Review Protocol adoption, C-2026-05-03-03)".
+  - `CHANGE_LOG.md` - this entry.
+- **Reason**: Lock standing rules for maintaining the Tier 1 governance files consistently. Recent staleness failures (`MASTER` Section 8, Section 14 Step 3 / 4, Section 16 Risk #4; `CURRENT_STATUS` push-pending after push) were caught only by independent review, not by structural control. The protocol turns these failure modes into "blocked by check before commit". 3D becomes the first execution wave run under the protocol; the pre-commit check applies to it from the start.
+- **Out of scope (intentional)**:
+  - No code changes.
+  - No schema changes.
+  - No route changes.
+  - No 3D planning or implementation.
+  - No Platform Ownership Register population.
+  - No new Tier 2 files created (the Tier 2 list is descriptive of what to review when, not prescriptive of what to create).
+  - No commits / pushes by agent.
+- **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave; will be run as part of the 3D wave when code lands.
+- **Status**: completed pending Pankaj's commit and push approval.

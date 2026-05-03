@@ -1,6 +1,6 @@
 # CURRENT_STATUS.md - PracticeIQ
 
-Last updated: 2026-05-03 (post Section 14 Step 3C closure, C-2026-05-03-01, and Pre-3D Product Architecture & SaaS Guardrail Scan adoption, C-2026-05-03-02)
+Last updated: 2026-05-03 (post Section 14 Step 3C closure, C-2026-05-03-01; Pre-3D Product Architecture & SaaS Guardrail Scan adoption, C-2026-05-03-02; and Governance File Maintenance & Independent Review Protocol adoption, C-2026-05-03-03)
 Update rule: edit after every milestone, audit, or stage shift.
 
 ## Repo Health
@@ -14,6 +14,7 @@ Update rule: edit after every milestone, audit, or stage shift.
 - Supabase project: provisioned in Mumbai (`ap-south-1`); first migration `20260429185225_init_postgres` applied
 - **Stage gate**: Founder-led POC (Stage 0). Pre-real-client-data checklist not yet started. See MASTER_PROJECT.md Section 22 and D-2026-05-03-01.
 - **Pre-3D guardrail scan adopted**: Section 14 Step 3D plan must consume MASTER_PROJECT.md Section 23 (TaskStatus / Priority canonical sets, transition matrix, reopen / cancel / closure rules, inactive user / client handling, cross-firm ID validation, audit event taxonomy, plan-tier feature codes, entitlement helper shape, Writing Assist deferred guardrails) as implementation constraints. See D-2026-05-03-02 and AGENTS.md G7.
+- **Governance protocol active**: Pre-commit five-file consistency check applies from C-2026-05-03-03 forward. Independent ChatGPT review is a named control input at major Section 14 transitions. See MASTER_PROJECT.md Section 24 and AGENTS.md G8.
 
 ## Current Stage
 

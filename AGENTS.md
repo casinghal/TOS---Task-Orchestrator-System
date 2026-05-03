@@ -93,3 +93,13 @@ In effect from Section 14 Step 2 onward (Postgres, Prisma, migrations, schema, e
 
 For any new entity route group (Section 14 Step 3D Tasks, 3E Team, 3F Modules, and any future entity routes), the agent reads `MASTER_PROJECT.md` Section 23 (or its named successor) **before** drafting the route plan. Status / priority / transition / reopen / cancel / inactive-handling / audit-event / cross-firm-ID / entitlement / paywall-feature-code decisions live there as canonical, not in scattered route files. The route plan turn cites Section 23 as the source of its implementation constraints. Decisions that conflict with Section 23 are surfaced as MCQs requiring explicit Pankaj approval, never silently overridden.
 
+### G8 - Tier 1 governance file maintenance + pre-commit consistency check
+
+The agent runs a Tier 1 consistency check across the five governance files: `MASTER_PROJECT.md`, `CURRENT_STATUS.md`, `DECISION_LOG.md`, `CHANGE_LOG.md`, `AGENTS.md`. The 11 specific checks (C1 through C11) are listed in `MASTER_PROJECT.md` Section 24.5.
+
+**The Tier 1 consistency check applies before every commit-grade wave, whether code or documentation. It does not apply to every minor chat response or exploratory discussion. It applies when Claude is preparing changes that may be staged, committed, pushed, or used as the basis for a major Section 14 step.**
+
+The check runs as a short structured report in chat (typically ~10 lines) before the "ready to stage" message. The result is reported as **GREEN** (all 11 pass), **YELLOW** (informational findings that do not block commit), or **RED** (one or more checks fail; commit blocked until resolved). On RED, the agent surfaces the failure with an MCQ before staging.
+
+Independent ChatGPT review (per `MASTER_PROJECT.md` Section 24.6) is a control input, not an approval. Only Pankaj's explicit chat go-ahead authorises execution.
+

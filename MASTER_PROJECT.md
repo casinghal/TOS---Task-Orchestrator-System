@@ -9,8 +9,8 @@
 | Owner | Pankaj Singhal, Avantage Partners |
 | App location | `02_App/tos-app/` |
 | Live URL | `https://practice-iq.netlify.app` (single-tenant prototype) |
-| Document version | v1.9 |
-| Last meaningful update | 2026-05-03 (post Pilot-to-SaaS Scaling Guardrails and Pre-3D guardrail scan, D-2026-05-03-01 and D-2026-05-03-02) |
+| Document version | v2.0 |
+| Last meaningful update | 2026-05-03 (post Governance File Maintenance & Independent Review Protocol, D-2026-05-03-03) |
 
 Update rule: edit only on architectural, product, or strategic change. Operational status lives in `CURRENT_STATUS.md`. Decisions in `DECISION_LOG.md`. Implementation history in `CHANGE_LOG.md`.
 
@@ -681,3 +681,99 @@ A future lightweight feature that helps users improve wording in task title, tas
 ### 23.10 Section 14 non-impact
 
 This section does NOT reorder, weaken, delay, or override Section 14. The locked execution sequence remains: Step 3D Tasks → 3E Team → 3F Modules → Step 4 Auth + RBAC → Step 5 Persistence cutover. No schema change is introduced. All 23.1-23.9 locks operate at the route layer (Zod validation, transition map, ID-belongs-to-firm checks) using one new constants file (`src/lib/task-constants.ts`) that the 3D wave will create. Future entity route groups (3E Team, 3F Modules) consume this section's pattern per AGENTS.md G7.
+
+## 24. Governance File Maintenance & Independent Review Protocol
+
+Standing protocol for maintaining the Tier 1 governance files consistently and for using independent ChatGPT review as a control input at named milestones. Adopted per D-2026-05-03-03. Does NOT reorder Section 14.
+
+### 24.1 Tier 1 governance files (always-reviewed control pack)
+
+The five files below are the Tier 1 governance control pack. The agent reads all five at the start of every commit-grade wave and treats them as the canonical project memory.
+
+| File | Path |
+|------|------|
+| `MASTER_PROJECT.md` | `02_App/tos-app/MASTER_PROJECT.md` |
+| `CURRENT_STATUS.md` | `02_App/tos-app/CURRENT_STATUS.md` |
+| `DECISION_LOG.md` | `02_App/tos-app/DECISION_LOG.md` |
+| `CHANGE_LOG.md` | `02_App/tos-app/CHANGE_LOG.md` |
+| `AGENTS.md` | `02_App/tos-app/AGENTS.md` |
+
+### 24.2 Tier 2 review files (reviewed when relevant)
+
+| File | When to review |
+|------|----------------|
+| `prisma/schema.prisma` | Schema decisions, migration waves, entity additions |
+| `src/lib/permissions.ts` | New action codes, role changes, RBAC matrix updates |
+| `src/lib/api-helpers.ts` | Changes to `requireAuth`, `requireSession`, response envelope, `writeActivityLog` |
+| `src/lib/task-constants.ts` *(once created in 3D)* | Task status, priority, transition matrix changes |
+| `src/lib/entitlements.ts` *(once created)* | Feature codes, plan-tier resolution, paywall behaviour |
+| `.env.example` | Env-var contract changes |
+| `netlify.toml` | Build, headers, plugin, redirect changes |
+| `NEXT_TASKS.md` | Current task queue, modular split plan |
+| `PROJECT_CONTEXT.md` | Origin handover context |
+
+### 24.3 Role of each Tier 1 file
+
+| File | Canonical role | Edit trigger |
+|------|----------------|--------------|
+| `MASTER_PROJECT.md` | Stable strategy, architecture, product guardrails, roadmap, canonical product decisions. Slow-moving by design. | Architectural, product, or strategic change. Section 14 step status shifts. New canonical sections. |
+| `CURRENT_STATUS.md` | Current operational truth: latest verified runtime/code commit, what works, what is partially built, what is missing, known risks, deployment readiness, next 5-10 priorities. Fast-moving by design. | Every milestone, audit, stage shift, route completion, deployment verification, risk change, current-state change. |
+| `DECISION_LOG.md` | Why meaningful decisions were made, alternatives rejected, impact. Append-only. | Any meaningful product / architecture / database / auth / deployment / pricing / governance decision. One entry per decision. |
+| `CHANGE_LOG.md` | What changed, files changed, reason, testing required, status. Append-only. | Every implementation wave, including documentation-only waves. One entry per commit-grade unit of work. |
+| `AGENTS.md` | How Claude / agents must behave. The operating manual for the AI side of the team. | Any new rule that must apply to future agent behaviour. Working rules live in Section 9 as G1, G2, ... |
+
+### 24.4 Mandatory synchronization rules
+
+1. Any new MASTER governance section needs a paired `DECISION_LOG.md` entry.
+2. Any implementation or documentation wave needs a paired `CHANGE_LOG.md` entry.
+3. Any milestone, stage shift, route completion, deployment status, or current-state change needs a `CURRENT_STATUS.md` update.
+4. Any new agent behaviour rule goes into `AGENTS.md` Section 9 as the next G-rule (G8, G9, ...).
+5. Any Section 14 status shift must be reflected in **both** the `CURRENT_STATUS.md` Current Stage block AND the `MASTER_PROJECT.md` Section 14 step text. Updating only one creates drift.
+6. Current implementation and target architecture must be clearly labelled if they differ. `MASTER_PROJECT.md` Section 8 uses two columns ("Current" and "Target"). Section 14 step text always names the present state explicitly. Aspirational text must not masquerade as current.
+7. Do not leave stale route-status, tech-stack, auth, schema, or risk language in `MASTER_PROJECT.md` after progress has occurred.
+8. Documentation-only commits must not advance the "Latest verified runtime/code commit" line in `CURRENT_STATUS.md` Repo Health. That line names the SHA of the last commit that actually changed runtime; documentation commits do not rotate it.
+
+### 24.5 Pre-commit five-file consistency check
+
+**The Tier 1 consistency check applies before every commit-grade wave, whether code or documentation. It does not apply to every minor chat response or exploratory discussion. It applies when Claude is preparing changes that may be staged, committed, pushed, or used as the basis for a major Section 14 step.**
+
+When triggered, Claude runs the 11 checks below and emits a short structured report (~10 lines) before the "ready to stage" message. Result is reported as **GREEN** (all 11 pass), **YELLOW** (one or more checks have informational findings that do not block commit), or **RED** (one or more checks fail and commit is blocked until resolved). On RED, the agent surfaces the failure with an MCQ before staging.
+
+| # | Check | What it catches |
+|---|-------|-----------------|
+| C1 | MASTER vs CURRENT_STATUS consistency | Section 14 step status, route group status, tech stack state, risk list - all match across files |
+| C2 | DECISION_LOG entry exists for any meaningful decision in this wave | New MASTER sections / governance changes shipped without recorded "why" |
+| C3 | CHANGE_LOG entry exists for the wave AND accurately lists every file in the staging set | Implementation without documentation; documentation lying about what changed |
+| C4 | AGENTS.md updated if future agent behaviour changes | New working rules invented in chat but not recorded for future agents |
+| C5 | No stale commit references | Old SHAs that no longer match HEAD; references to commits since reverted |
+| C6 | No stale route-status language | "Pending" routes that have shipped; "DONE" routes that haven't |
+| C7 | No stale tech-stack state | sqlite-when-Postgres, static-when-dynamic, etc. |
+| C8 | No unlogged decisions | New rules / canonical sections without DECISION_LOG paired entry |
+| C9 | No undocumented implementation waves | Code or doc changes without CHANGE_LOG paired entry |
+| C10 | No conflict between Section 14 and CURRENT_STATUS | Step status, sub-step completion, pending route groups all reconciled |
+| C11 | No contradiction between target architecture and current implementation | Target column matches current column where convergence has happened |
+
+### 24.6 Independent ChatGPT review gate
+
+ChatGPT (or any other independent LLM Pankaj uses for second-opinion review) is treated as a **control input**, not an approval. Pankaj invokes the gate manually at the named milestones below.
+
+| Trigger | Why |
+|---------|-----|
+| Before major Section 14 steps (3D, 3E, 3F, Step 4, Step 5) | Each step is a structural commitment; an independent read catches blind spots Claude carries from the same conversation |
+| Before Step 4 Auth / RBAC | Auth / RBAC changes affect every route; second-opinion check is cheap insurance |
+| Before Step 5 Persistence cutover | One-way migration risk; second-opinion sees the cutover plan against doc state |
+| After meaningful commits on `main` | Periodic governance audit; catches drift early |
+| Before friendly pilot / beta promotion (Stage 0.5) | Section 22.5 pre-real-client-data checklist deserves independent verification |
+| Before paid-client onboarding (Stage 1+) | Section 22.6 pre-paid-client checklist deserves independent verification |
+| When Claude proposes to change MASTER, AGENTS, schema, auth, tenant isolation, paywall, audit, or deployment controls | Anything that touches the constitution or production-shape concerns |
+
+**Rules for how Claude treats ChatGPT review:**
+
+- Treat as control input, not implementation approval.
+- Pankaj's explicit go-ahead in chat is still required for any execution. ChatGPT thumbs-up does not authorise execution.
+- If ChatGPT identifies contradictions, Claude must resolve or seek approval before proceeding. Surface the contradiction with quoted text, propose a fix in MCQ form, wait for Pankaj's selection.
+- Disagreement is allowed. If Claude believes ChatGPT is wrong, say so with reasoning. Do not capitulate to the second opinion; do not dismiss it either.
+
+### 24.7 Section 14 non-impact
+
+This protocol does NOT reorder, weaken, delay, or override Section 14. The locked execution sequence remains: Step 3D Tasks → 3E Team → 3F Modules → Step 4 Auth + RBAC → Step 5 Persistence cutover. The pre-commit consistency check adds approximately 30 seconds to each governance commit and catches drift before it ships. 3D will be the first execution wave run under this protocol.
