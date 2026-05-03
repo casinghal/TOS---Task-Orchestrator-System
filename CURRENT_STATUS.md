@@ -6,12 +6,13 @@ Update rule: edit after every milestone, audit, or stage shift.
 ## Repo Health
 
 - Branch: `main` (in sync with `origin/main`)
-- Latest pushed commit: `d1fad2f` (`Section 14 Step 3B - Add clients read routes`)
-- Step 3C (activity read route + permissions amendment + status doc refresh) committed locally; push pending Pankaj approval.
+- Latest pushed commit: `7e62c99` (`Section 14 Step 3C: Add activity read route`)
+- Section 14 Step 3C pushed, deployed, and Netlify-verified live on 2026-05-03: `GET /api/activity` returns 401 with `{"ok":false,"message":"Authentication required."}`, confirming the locked-by-default contract holds.
 - Live URL: `https://practice-iq.netlify.app/` (Netlify auto-deploys from GitHub `main`)
 - Build: `npm run uat:check` passing per Pankaj's local verification (note: origin renamed `release:check` to `uat:check`)
 - Five Netlify env vars set: `DATABASE_URL`, `DIRECT_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - Supabase project: provisioned in Mumbai (`ap-south-1`); first migration `20260429185225_init_postgres` applied
+- **Stage gate**: Founder-led POC (Stage 0). Pre-real-client-data checklist not yet started. See MASTER_PROJECT.md Section 22 and D-2026-05-03-01.
 
 ## Current Stage
 
@@ -76,7 +77,7 @@ Update rule: edit after every milestone, audit, or stage shift.
 3. localStorage is the prototype's only persistence layer for UI workspace state; data is browser-local until Section 14 Step 5.
 4. Origin's `Firm.emailDomain` (single-string) instead of D-2026-04-30-10's planned `AllowedFirmDomain` table - acceptable for current single-firm prototype; revisit when commercial activation requires multi-domain firms.
 5. Hardcoded Platform Owner SHA-256 password digest still ships in the client bundle. Removed in Section 14 Step 4 when Supabase Auth lands.
-6. Compliance posture open (DPDP Act applicability, audit retention period, RLS configuration).
+6. Compliance posture open (DPDP Act applicability, audit retention period, RLS configuration). Tracked under the Pilot-to-SaaS Scaling Guardrails framework (MASTER_PROJECT.md Section 22, pre-real-client-data checklist 22.5).
 7. New 3B and 3C routes are correctly locked-by-default (401 until Step 4) - this is the safety contract, not a defect. Confirm Step 4 lights them up before any UI consumes them.
 
 ## Deployment Readiness

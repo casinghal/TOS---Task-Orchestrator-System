@@ -379,3 +379,110 @@ PracticeIQ supports plan-based feature gating (Section 5) and module flags (Sect
 - Do not override Platform Owner module-flag governance for revenue convenience.
 
 Premium feature visibility lives in one place; the operational workspace stays focused on getting work done.
+
+## 22. Pilot-to-SaaS Scaling Guardrails
+
+Lightweight governance framework for the founder-led POC stage. Designed to protect future scalability, client-data safety, platform continuity, and migration flexibility without creating bureaucracy too early. See D-2026-05-03-01 for the locked decision. Does NOT reorder, weaken, or override Section 14 (Backend Strategy).
+
+### 22.1 Stage definition
+
+PracticeIQ progresses through three named stages. The current stage is recorded in `CURRENT_STATUS.md` Repo Health.
+
+| Stage | Definition |
+|-------|------------|
+| **Stage 0 - Founder-led POC** | Non-technical founder + AI-assisted development. No real client data. Locked-by-default APIs. localStorage UI. Personal accounts on GitHub / Netlify / Supabase. |
+| **Stage 0.5 - Controlled beta candidate** | Eligible to invite friendly pilots. Section 14 Steps 4 (Auth) and 5 (Persistence) complete. Real auth, real persistence, ActivityLog writes live. Privacy Policy published. |
+| **Stage 1+ - Commercial SaaS** | First paying firm signed. Company-owned core accounts. Legal terms, DPA, cancellation, and data-export paths in place. |
+
+Stage promotion is gated on the relevant checklist (22.5, 22.6). No promotion happens by accident.
+
+### 22.2 Stage 0 acceptable
+
+- Personal ownership of GitHub (`casinghal`), Netlify, Supabase
+- Single-developer commits with founder supervision
+- Free-tier Supabase, Netlify, no PITR, no read replica
+- localStorage as UI persistence (until Section 14 Step 5)
+- Manual customer support (no ticketing, no formal SLA)
+- One Supabase project, one Netlify site, one DB
+- No SOC2 / ISO27001 documentation
+- Test data, fixture data, anonymised data only
+
+### 22.3 Stage 0 not acceptable
+
+- Real firm operational usage before Section 14 Steps 4 and 5 complete
+- Production database reset
+- `prisma migrate reset` against production
+- Destructive schema or database changes without explicit founder approval
+- Document upload before Section 21.2 pre-conditions are approved
+- Use of highly sensitive client files (PAN, Aadhaar, bank statements, KYC, signed agreements, financial returns) in early pilot
+- Production data exports without explicit founder approval
+- Sharing GitHub / Netlify / Supabase access with anyone other than founder before Stage 1
+- Real bulk emails or outreach using the platform's domain or sender identity
+- Public marketing or launch announcements before Stage 0.5
+- Connecting PracticeIQ to Avantage live financial systems (QBO / Sage / Tally) at any stage
+- Mixing client data across firms (cross-tenant contamination)
+
+### 22.4 Stage gates and trigger points
+
+| Trigger | Fires at | Why |
+|---------|----------|-----|
+| Company-owned GitHub org | First paying firm | Personal account = single point of failure for IP / access |
+| Company-owned Netlify | 3 active firms | Team access + production SLA risk |
+| Company-owned Supabase project | First paying firm | Data ownership + billing isolation |
+| Company-owned custom domain | Pre Stage-0.5 | Brand identity for pilot URLs |
+| Company-owned billing account | First paying firm | Revenue and tax compliance |
+| Paid Supabase Pro plan | First paying firm OR > 500MB DB | PITR availability, free-tier limits |
+| Paid Netlify Pro plan | 3 active firms OR > 100GB bandwidth | Deploy concurrency, team access, SLA |
+| Backup + PITR | First paying firm | Operational hygiene |
+| Basic support process (email + response window) | First friendly pilot | Founder must commit publicly |
+| Legal terms (T&C + Privacy Policy) | First friendly pilot (even free) | Liability cap, IP, data handling |
+| DPA template | First paying firm | Required by client compliance teams |
+| Data retention / export / cancellation / deletion policy | First paying firm | Right to be forgotten + offboarding |
+| E&O / professional liability insurance | 5 paying firms | Risk transfer once revenue justifies premium |
+| DPDP Act formal compliance posture | First friendly pilot if Indian; otherwise Stage 1 | Indian data protection statute |
+
+### 22.5 Pre-real-client-data checklist
+
+Must all pass before any non-test client data enters PracticeIQ:
+
+- Section 14 Step 4 Supabase Auth landed (hardcoded SHA-256 digest gone)
+- Section 14 Step 5 Persistence cutover landed (localStorage no longer source of truth)
+- `writeActivityLog()` live and writing to `ActivityLog`
+- RLS policies configured on every tenant-scoped table
+- Daily Supabase backup confirmed working
+- At least one successful full restore drill
+- HTTPS enforcement confirmed
+- Privacy Policy published on the live URL
+- DPDP Act applicability assessed
+- Audit log retention period decided and documented
+- Founder operational availability documented (response window, escalation path)
+- First friendly firm signed a short pilot acceptance letter (non-binding)
+
+### 22.6 Pre-paid-client checklist
+
+Pre-real-client-data checklist passed AND:
+
+- T&C published and accepted at signup
+- DPA template ready (even single-page)
+- Pricing locked
+- Subscription billing owner identified (founder or company)
+- Refund policy decided
+- Cancellation path documented and tested
+- Data export endpoint operational (downloadable bundle, structured)
+- Data deletion path documented and tested (right to be forgotten)
+- Support email + response SLA published
+- Status URL or status page for outages
+- Company-owned GitHub org evaluated
+- Company-owned Supabase project evaluated
+- Company-owned billing account live
+- DPDP Act compliance posture documented
+- E&O insurance quoted (purchase deferred to 5 paying firms trigger)
+- First paying firm signed full T&C + DPA
+
+### 22.7 Platform Ownership Register
+
+A short companion document captures account ownership facts: account holder, login email, recovery method, billing owner, emergency access. Template fields: GitHub, Netlify, Supabase, Domain / DNS, Email sender, Billing / subscription owner, Emergency access owner. Population deferred per D-2026-05-03-01 (Option A); the register is named here and lives in a separate file once populated. Location to be decided when populated.
+
+### 22.8 Section 14 non-impact
+
+This section does NOT reorder, weaken, delay, or override Section 14. The locked execution sequence remains: Step 3D Tasks → 3E Team → 3F Modules → Step 4 Auth + RBAC → Step 5 Persistence cutover. Stage 0.5 (Friendly Pilot) is technically blocked until Steps 4 and 5 complete; this section names that block in writing instead of leaving it implicit. Governance lives alongside execution, not in front of it.
