@@ -492,3 +492,26 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
   - No commits / pushes by agent.
 - **Testing required**: Pankaj on Windows from `02_App\tos-app`: `npm run uat:check` (lint + db:validate + build). **Per AGENTS G3, the agent's bash sandbox cannot reliably run any of the three steps** on this OneDrive mount today — `npm`'s JSON.parse saw trailing-NULL phantom corruption in `package.json` (file tool confirms `package.json` is clean on the actual filesystem, 35 lines, valid JSON; this is a G2 phantom-view artifact, not an actual file corruption). Per AGENTS G2 the file tool is authoritative. Pankaj's PowerShell will produce real validation results. Code-level review via the file tool is clean: all four files have well-formed TypeScript, correct imports, correct types, and follow the 3B / 3C / Activity-route patterns.
 - **Status**: drafted locally pending Pankaj's `npm run uat:check` (lint + db:validate + build) and explicit commit/push approval.
+
+---
+
+## C-2026-05-04-02 - Post-3D-1 deployment sync
+
+- **Date**: 2026-05-04
+- **Task**: Documentation-only post-deployment sync for Section 14 Step 3D-1. The 3D-1 commit `8754760` (`Section 14 Step 3D-1: Add tasks foundation and read/create routes`) was pushed to `origin/main` and Netlify-verified. `/api/tasks`, `/api/tasks/[id]`, and `/api/activity` all returned 401 with the standard `{"ok":false,"message":"Authentication required."}` envelope, confirming both new routes are gated and the existing 3C route is unchanged. This sync entry advances the `CURRENT_STATUS.md` "Latest verified runtime/code commit" SHA marker from `7e62c99` to `8754760`, replaces drafted-locally wording in `CURRENT_STATUS.md` and `MASTER_PROJECT.md` with deployed-and-verified wording, and keeps 3D-2 and 3D-3 as pending sub-waves.
+- **Files changed**:
+  - `CURRENT_STATUS.md` - **(a)** Latest verified runtime/code commit advanced from `7e62c99` (`Section 14 Step 3C: Add activity read route`) to `8754760` (`Section 14 Step 3D-1: Add tasks foundation and read/create routes`); the brief deployment confirmation line under it was rewritten to cite the 3D-1 routes (`/api/tasks` and `/api/tasks/[id]`) with `/api/activity` re-verified unchanged. **(b)** Step 3 line in Current Stage block updated to mark 3D-1 DONE alongside 3A / 3B / 3C with commit SHAs cited; pending list trimmed to 3D-2, 3D-3, 3E, 3F. **(c)** Repo Health 3D-1 bullet rewritten: "drafted locally pending validation / commit / push" replaced with "pushed, deployed, and Netlify-verified" and the live URL plus 401 envelope cited. **(d)** Last-updated header refreshed to also cite C-2026-05-04-01 (3D-1 push and deploy) and C-2026-05-04-02 (this doc-sync wave); date advanced to 2026-05-04.
+  - `MASTER_PROJECT.md` - Section 14 Step 3 line updated: 3D-1 marked DONE with commit `8754760` cited alongside 3A / 3B / 3C; pending sub-waves remain 3D-2, 3D-3 alongside `team/` and `modules/` route groups. Section 0 metadata NOT bumped — this is an operational status sync, not a new MASTER governance section. Prior post-push doc-syncs (post-3B, post-3C) followed the same convention of skipping Section 0 bumps for status syncs.
+  - `CHANGE_LOG.md` - this entry.
+- **Reason**: Per Synchronization Rule #8 of MASTER Section 24.4, documentation-only commits do not advance the "Latest verified runtime/code commit" SHA marker. The 3D-1 wave (C-2026-05-04-01) was a code commit that DID advance the runtime; this sync wave advances the SHA marker accordingly. Replacing the drafted-locally wording is the standard post-push doc-sync pattern (mirrors the post-3C doc-sync that landed inside C-2026-05-03-02).
+- **Out of scope (intentional)**:
+  - No code changes.
+  - No schema changes.
+  - No route changes.
+  - No 3D-2 planning or implementation.
+  - No 3D-3 implementation.
+  - No `DECISION_LOG.md` entry (no genuine new decision in this wave; per Pankaj's instruction, DECISION_LOG is left untouched).
+  - No `AGENTS.md` change.
+  - No commits / pushes by agent.
+- **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave.
+- **Status**: completed pending Pankaj's commit and push approval.

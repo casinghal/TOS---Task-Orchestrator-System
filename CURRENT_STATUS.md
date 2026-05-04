@@ -1,13 +1,13 @@
 # CURRENT_STATUS.md - PracticeIQ
 
-Last updated: 2026-05-03 (post Section 14 Step 3C closure, C-2026-05-03-01; Pre-3D Product Architecture & SaaS Guardrail Scan adoption, C-2026-05-03-02; Governance File Maintenance & Independent Review Protocol adoption, C-2026-05-03-03; Cost Discipline at Stage 0 adoption, C-2026-05-03-04; and External Threat Security & Platform Hardening Guardrails adoption, C-2026-05-03-05)
+Last updated: 2026-05-04 (post Section 14 Step 3C closure, C-2026-05-03-01; Pre-3D Product Architecture & SaaS Guardrail Scan adoption, C-2026-05-03-02; Governance File Maintenance & Independent Review Protocol adoption, C-2026-05-03-03; Cost Discipline at Stage 0 adoption, C-2026-05-03-04; External Threat Security & Platform Hardening Guardrails adoption, C-2026-05-03-05; Section 14 Step 3D-1 push and deploy, C-2026-05-04-01; and post-3D-1 deployment sync, C-2026-05-04-02)
 Update rule: edit after every milestone, audit, or stage shift.
 
 ## Repo Health
 
 - Branch: `main` (in sync with `origin/main`)
-- Latest verified runtime/code commit: `7e62c99` (`Section 14 Step 3C: Add activity read route`)
-- Section 14 Step 3C pushed, deployed, and Netlify-verified live on 2026-05-03: `GET /api/activity` returns 401 with `{"ok":false,"message":"Authentication required."}`, confirming the locked-by-default contract holds.
+- Latest verified runtime/code commit: `8754760` (`Section 14 Step 3D-1: Add tasks foundation and read/create routes`)
+- Section 14 Step 3D-1 pushed, deployed, and Netlify-verified live on 2026-05-04: `GET /api/tasks` and `GET /api/tasks/[id]` return 401 with `{"ok":false,"message":"Authentication required."}`, confirming the locked-by-default contract holds. Existing `GET /api/activity` (3C) re-verified unchanged in the same check.
 - Live URL: `https://practice-iq.netlify.app/` (Netlify auto-deploys from GitHub `main`)
 - Build: `npm run uat:check` passing per Pankaj's local verification (note: origin renamed `release:check` to `uat:check`)
 - Five Netlify env vars set: `DATABASE_URL`, `DIRECT_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
@@ -17,7 +17,7 @@ Update rule: edit after every milestone, audit, or stage shift.
 - **Governance protocol active**: Pre-commit five-file consistency check applies from C-2026-05-03-03 forward. Independent ChatGPT review is a named control input at major Section 14 transitions. See MASTER_PROJECT.md Section 24 and AGENTS.md G8.
 - **Cost discipline at Stage 0 active**: every recommendation that touches tooling, infrastructure, or spend uses the four-row template (Free / Paid / Recommendation / Trigger) per AGENTS G9. Detailed principle at MASTER_PROJECT.md Section 22.9. See D-2026-05-03-04.
 - **Security guardrails active**: Section 14 Step 3D and onward route planning consumes MASTER_PROJECT.md Section 25 (route-construction checklist, task-route specifics, Step 4 requirements, RLS / DB requirements, platform hardening, monitoring, future module security, G9 cost-discipline matrix, CA / CPA client-trust lens, Platform Ownership Register status, consumption rule) alongside Section 23. AGENTS G7 effective scope is extended to include Section 25 by D-2026-05-03-05; no new G10 added. See D-2026-05-03-05.
-- **Step 3D-1 drafted locally**: Tasks foundation + read/create routes drafted on 2026-05-04. Files: `src/lib/task-constants.ts` (NEW), `src/lib/permissions.ts` (added `Action.TASK_VIEW`), `src/app/api/tasks/route.ts` (NEW — GET list + POST create), `src/app/api/tasks/[id]/route.ts` (NEW — GET single only). Decisions A through F locked at D-2026-05-04-01; Decisions G / H / I consumed from Section 25. Pending Pankaj's `npm run uat:check` build verification and commit/push approval. Latest verified runtime/code commit (line above) NOT advanced — stays at `7e62c99` until 3D-1 push and Netlify verification. See C-2026-05-04-01.
+- **Step 3D-1 pushed, deployed, and Netlify-verified**: Tasks foundation + read/create routes live on `https://practice-iq.netlify.app` since 2026-05-04 (commit `8754760`). `/api/tasks` and `/api/tasks/[id]` return 401 locked-by-default with the standard `{"ok":false,"message":"Authentication required."}` envelope. Decisions A through F locked at D-2026-05-04-01; Decisions G / H / I consumed from Section 25. See C-2026-05-04-01 for the implementation wave and C-2026-05-04-02 for this post-deployment doc-sync. 3D-2 (Tasks mutations) and 3D-3 (Tasks lifecycle actions) remain pending.
 
 ## Current Stage
 
@@ -25,7 +25,7 @@ Update rule: edit after every milestone, audit, or stage shift.
 
 - Step 1 (Foundation cutover): **DONE**. `next.config.ts` flipped off static export, `netlify.toml` updated, `.env.example` documents the env-var contract, four memory files at app root.
 - Step 2 (Postgres + Prisma wiring): **PARTIALLY DONE**. Origin shipped Postgres provider + first migration + `src/lib/prisma.ts`. Pending: `AllowedFirmDomain` (origin used `Firm.emailDomain` single-string instead per D-2026-04-30-15), `UserNotificationPreference`, `NotificationLog`, `NotificationChannel` and `NotificationType` enums.
-- Step 3 (API layer scaffold): **PARTIALLY DONE**. Sub-steps 3A (commit `093a816`), 3B (commit `d1fad2f`), and 3C (commit `7e62c99`) **DONE**. Sub-step 3D-1 (Tasks foundation + read/create routes, C-2026-05-04-01) **drafted locally** pending Pankaj's `npm run uat:check` build verification and commit/push. Origin's 5 firm / tenant routes still present, untouched. Pending: 3D-2 (Tasks mutations), 3D-3 (Tasks lifecycle actions), 3E team, 3F modules.
+- Step 3 (API layer scaffold): **PARTIALLY DONE**. Sub-steps 3A (commit `093a816`), 3B (commit `d1fad2f`), 3C (commit `7e62c99`), and 3D-1 (Tasks foundation + read/create routes, C-2026-05-04-01, commit `8754760`) **DONE**. Origin's 5 firm / tenant routes still present, untouched. Pending: 3D-2 (Tasks mutations), 3D-3 (Tasks lifecycle actions), 3E team, 3F modules.
 - Step 4 (Supabase Auth + tenant-guard + RBAC): **PARTIALLY DONE**. Origin shipped `src/lib/tenant-guard.ts` (53 lines, email / domain validation). Step 3A added the codified permission matrix at `src/lib/permissions.ts` (Section 10); 3C extended it with `Action.ACTIVITY_VIEW`. Pending: full Supabase Auth replacing the hardcoded SHA-256 password digest, hardening of origin's existing 5 routes, allowed-domain enforcement at the API layer.
 - Step 5 (Persistence cutover): **NOT STARTED**. UI still uses localStorage; API routes exist but UI does not consume them yet.
 
