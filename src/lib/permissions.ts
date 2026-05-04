@@ -33,9 +33,17 @@ export const Action = {
   // ARTICLE_STAFF holds TASK_VIEW but the route layer enforces an
   // own-or-assigned scope (per Decision C1) for that role. FIRM_ADMIN /
   // PARTNER / MANAGER see firm-wide tasks within tenant.
-  // TASK_REOPEN and TASK_CANCEL are added in 3D-3 (lifecycle actions
-  // sub-wave) per Decision A1 - not present in 3D-1.
   TASK_VIEW: "TASK_VIEW",
+  // Lifecycle actions added in 3D-3 per Decision A1.
+  // TASK_REOPEN: FIRM_ADMIN always; PARTNER / MANAGER if isReviewer.
+  //   ARTICLE_STAFF never. Per Section 23.3 (only the original reviewer
+  //   or FIRM_ADMIN can reopen a CLOSED task).
+  // TASK_CANCEL: FIRM_ADMIN and PARTNER always; MANAGER if isCreator.
+  //   ARTICLE_STAFF never. Per Section 23.3 + Section 23.5 (creator can
+  //   cancel except when the creator is ARTICLE_STAFF, who cannot cancel
+  //   any task per the role restriction).
+  TASK_REOPEN: "TASK_REOPEN",
+  TASK_CANCEL: "TASK_CANCEL",
   // Clients
   CLIENT_MANAGE: "CLIENT_MANAGE",
   CLIENT_VIEW: "CLIENT_VIEW",
@@ -86,6 +94,8 @@ const FIRM_ROLE_PERMISSIONS: Record<FirmRoleCode, ActionCode[]> = {
     Action.TASK_MOVE_TO_REVIEW,
     Action.TASK_CLOSE,
     Action.TASK_VIEW,
+    Action.TASK_REOPEN,
+    Action.TASK_CANCEL,
     Action.CLIENT_MANAGE,
     Action.CLIENT_VIEW,
     Action.TEAM_MANAGE,
@@ -97,6 +107,7 @@ const FIRM_ROLE_PERMISSIONS: Record<FirmRoleCode, ActionCode[]> = {
     Action.TASK_ADD_NOTE,
     Action.TASK_MOVE_TO_REVIEW,
     Action.TASK_VIEW,
+    Action.TASK_CANCEL,
     Action.CLIENT_MANAGE,
     Action.CLIENT_VIEW,
     Action.TEAM_VIEW,
@@ -163,6 +174,27 @@ export function hasPermission(
     action === Action.TASK_MOVE_TO_REVIEW &&
     user.firmRole === FirmRole.ARTICLE_STAFF &&
     context.isOwnTask
+  ) {
+    return true;
+  }
+
+  // Lifecycle context-aware rules added in 3D-3 (Section 23.3).
+  // TASK_REOPEN: PARTNER and MANAGER may reopen if they are the original
+  // reviewer of the task. ARTICLE_STAFF never (no base, no context grant).
+  if (
+    action === Action.TASK_REOPEN &&
+    (user.firmRole === FirmRole.PARTNER || user.firmRole === FirmRole.MANAGER) &&
+    context.isReviewer
+  ) {
+    return true;
+  }
+
+  // TASK_CANCEL: MANAGER may cancel if they are the task creator.
+  // ARTICLE_STAFF never, even when creator (Section 23.5 restriction).
+  if (
+    action === Action.TASK_CANCEL &&
+    user.firmRole === FirmRole.MANAGER &&
+    context.isCreator
   ) {
     return true;
   }
