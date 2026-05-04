@@ -560,3 +560,25 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
   - No commits / pushes by agent.
 - **Testing required**: Pankaj on Windows from `02_App\tos-app`: `npm run uat:check` (lint + db:validate + build). Per AGENTS G3, the agent's bash sandbox cannot reliably run these on this OneDrive mount. Code-level review via the file tool is clean: all three files have well-formed TypeScript, correct imports (zod, prisma, api-helpers, permissions, task-constants), correct Prisma usage (findUnique / update / transaction / deleteMany / createMany; the existing schema field names firmId / clientId / reviewerId / createdById / assignees / @@unique(firmId_userId)), and follow the corrected PATCH flow from D-2026-05-04-02 plus the 3B / 3C / 3D-1 patterns.
 - **Status**: drafted locally pending Pankaj's `npm run uat:check` (lint + db:validate + build) and explicit commit/push approval.
+
+---
+
+## C-2026-05-04-04 - Post-3D-2 deployment sync
+
+- **Date**: 2026-05-04
+- **Task**: Documentation-only post-deployment sync for Section 14 Step 3D-2. The 3D-2 commit `13d8b4f` (`Section 14 Step 3D-2: Add tasks mutations (PATCH + notes + assignees)`) was pushed to `origin/main` and Netlify-verified. `/api/tasks`, `/api/tasks/[id]`, and `/api/activity` all returned 401 with the standard `{"ok":false,"message":"Authentication required."}` envelope, confirming both 3D-1 routes still gate correctly and the existing 3C route is unchanged. The new `/api/tasks/[id]/notes` (POST) and `/api/tasks/[id]/assignees` (PATCH) endpoints are registered in the build route table per the Netlify deploy of `13d8b4f` (mirroring the local `npm run build` output Pankaj ran pre-commit). This sync entry advances the `CURRENT_STATUS.md` "Latest verified runtime/code commit" SHA marker from `8754760` to `13d8b4f`, replaces drafted-locally wording in `CURRENT_STATUS.md` and `MASTER_PROJECT.md` with deployed-and-verified wording, and keeps 3D-3 as the only remaining 3D sub-wave.
+- **Files changed**:
+  - `CURRENT_STATUS.md` - **(a)** Latest verified runtime/code commit advanced from `8754760` (`Section 14 Step 3D-1: Add tasks foundation and read/create routes`) to `13d8b4f` (`Section 14 Step 3D-2: Add tasks mutations (PATCH + notes + assignees)`). **(b)** The brief deployment confirmation line under it was rewritten to cite the 3D-2 routes (PATCH `/api/tasks/[id]` for which GET still returns 401; POST `/api/tasks/[id]/notes` and PATCH `/api/tasks/[id]/assignees` registered in the build route table) with `/api/activity` re-verified unchanged. **(c)** Step 3 line in Current Stage block updated to mark 3D-2 DONE alongside 3A / 3B / 3C / 3D-1 with commit SHAs cited; pending list trimmed to 3D-3, 3E, 3F. **(d)** Repo Health 3D-2 bullet rewritten: "drafted locally pending validation / commit / push" replaced with "pushed, deployed, and Netlify-verified" plus the live URL and 401 envelope citation. **(e)** Last-updated header refreshed to also cite C-2026-05-04-03 (3D-2 push and deploy) and C-2026-05-04-04 (this doc-sync wave).
+  - `MASTER_PROJECT.md` - Section 14 Step 3 line updated: 3D-2 marked DONE with commit `13d8b4f` cited alongside 3A / 3B / 3C / 3D-1; pending sub-wave remains 3D-3 alongside `team/` and `modules/` route groups. Section 0 metadata NOT bumped — this is an operational status sync, not a new MASTER governance section. Prior post-push doc-syncs (post-3B, post-3C, post-3D-1) followed the same convention of skipping Section 0 bumps for status syncs.
+  - `CHANGE_LOG.md` - this entry.
+- **Reason**: Per Synchronization Rule #8 of MASTER Section 24.4, documentation-only commits do not advance the "Latest verified runtime/code commit" SHA marker. The 3D-2 wave (C-2026-05-04-03) was a code commit that DID advance the runtime; this sync wave advances the SHA marker accordingly. Replacing the drafted-locally wording is the standard post-push doc-sync pattern (mirrors the post-3D-1 sync C-2026-05-04-02).
+- **Out of scope (intentional)**:
+  - No code changes.
+  - No schema changes.
+  - No route changes.
+  - No 3D-3 planning or implementation.
+  - No `DECISION_LOG.md` entry (no genuine new decision in this wave; per Pankaj's instruction, DECISION_LOG is left untouched).
+  - No `AGENTS.md` change.
+  - No commits / pushes by agent.
+- **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave.
+- **Status**: completed pending Pankaj's commit and push approval.
