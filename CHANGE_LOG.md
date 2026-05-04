@@ -452,3 +452,43 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
   - No commits / pushes by agent.
 - **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave; will be run as part of the 3D wave when code lands.
 - **Status**: completed pending Pankaj's commit and push approval.
+
+---
+
+## C-2026-05-04-01 - Section 14 Step 3D-1: Tasks foundation + read/create routes
+
+- **Date**: 2026-05-04
+- **Task**: Section 14 Step 3D sub-wave 1 of 3. Foundation file (`task-constants.ts`) plus three read/create endpoints (`GET /api/tasks`, `POST /api/tasks`, `GET /api/tasks/[id]`). Permission matrix gains `Action.TASK_VIEW` per Decision B1; `Action.TASK_REOPEN` and `Action.TASK_CANCEL` per Decision A1 are deferred to 3D-3. Implements Decisions A through F as locked in D-2026-05-04-01; consumes Decisions G / H / I as Section 25 constraints. No PATCH, no notes, no assignees mutation, no close/reopen/cancel, no schema, no migration, no `requireEntitlement()`, no Writing Assist.
+- **Files changed**:
+  - `src/lib/task-constants.ts` (NEW, ~70 lines) - canonical `TASK_STATUSES` (7-value, no `REOPENED`), `PRIORITIES`, `TASK_STATUS_TRANSITIONS` matrix per Section 23.2 (`CLOSED → IN_PROGRESS` only via reopen action endpoint that ships in 3D-3; `CANCELLED` terminal), `isAllowedTransition()` helper, length / count caps locked at Section 25.5 / Decision G (`MAX_TASK_TITLE_LENGTH = 200`, `MAX_TASK_DESCRIPTION_LENGTH = 4000`, `MAX_TASK_NOTE_LENGTH = 4000`, `MAX_ASSIGNEES_PER_TASK = 50`, `MAX_TASK_PAGE_SIZE = 200`, `DEFAULT_TASK_PAGE_SIZE = 50`), and `DEFAULT_TASK_STATUS` / `DEFAULT_TASK_PRIORITY` constants.
+  - `src/lib/permissions.ts` (EDIT, +6 lines) - added `Action.TASK_VIEW` constant under the Tasks section comment; added `Action.TASK_VIEW` to FIRM_ADMIN, PARTNER, MANAGER, and ARTICLE_STAFF permission arrays. ARTICLE_STAFF route-layer scope per Decision C1 enforces own-or-assigned visibility; matrix grant is intentionally non-context-aware here so the route stays in control of scoping (mirrors 3C `ACTIVITY_VIEW` pattern). `TASK_REOPEN` and `TASK_CANCEL` not added in 3D-1 per Decision A1 (deferred to 3D-3).
+  - `src/app/api/tasks/route.ts` (NEW, ~265 lines) - GET list paginated + filtered; POST create. GET supports `page` / `pageSize` (capped at `MAX_TASK_PAGE_SIZE`) / `status` / `priority` / `clientId` / `reviewerId` / `from` / `to` (createdAt range with `from > to` returning 422); ARTICLE_STAFF server-scoped to own (creator) OR assigned tasks per Decision C1. POST validates `title` (required, trimmed, max 200) / `description` (optional, max 4000) / `clientId` (required, belongs to firm AND `ACTIVE`; 404 + `console.warn` on cross-firm; 422 on inactive) / `reviewerId` (required, active `FirmMember` of firm; 404 + `console.warn` on cross-firm or inactive) / `assigneeIds` (required, min 1, max 50, every ID an active `FirmMember`; 404 + `console.warn` on any cross-firm or inactive; de-duped before insert) / `dueDate` (required ISO datetime, **past dates allowed** per Section 23.5) / `priority` (optional, default NORMAL) / `status` (literal `"OPEN"` only). Body uses Zod `.strict()` per Decision H locked at Section 25.5. `writeActivityLog` called at `TASK_CREATE` semantic point (deferred no-op). Returns 201 with the created task. Same response envelope as 3B / 3C.
+  - `src/app/api/tasks/[id]/route.ts` (NEW, ~80 lines) - GET single only. Cross-firm hits return 404 (existence not leaked) with `console.warn` for forensics. ARTICLE_STAFF visibility check on result: must be creator or assignee, else 404 (not 403, to avoid leaking). PATCH ships in 3D-2; close / reopen / cancel ship in 3D-3.
+  - `MASTER_PROJECT.md` - Section 14 Step 3 status updated to mark 3D-1 as drafted locally pending Pankaj's `npm run uat:check` build verification (per AGENTS G3); pending sub-waves trimmed to 3D-2, 3D-3.
+  - `CURRENT_STATUS.md` - Working list adds Tasks foundation entry; Step 3 line updated to mark 3D-1 drafted; Last-updated header refreshed to include C-2026-05-04-01. **Latest verified runtime/code commit NOT advanced** (per Synchronization Rule #8) — stays at `7e62c99` until the 3D-1 commit pushes and Netlify verifies.
+  - `DECISION_LOG.md` - new entry `D-2026-05-04-01 - Section 14 Step 3D plan decisions A through F selected` capturing all six selections with rationale and alternatives rejected.
+  - `CHANGE_LOG.md` - this entry.
+- **Reason**: 3D-1 is the foundation sub-wave that locks `task-constants.ts` and ships the read/create surface. Splitting the 9-endpoint 3D plan into 3D-1 (foundation + reads), 3D-2 (mutations), 3D-3 (lifecycle actions) keeps each commit in the 3B-sized comfort zone and lets each sub-wave run its own Tier 1 consistency check before staging.
+- **Auth state today**: every route returns 401 by design until Step 4. `requireSession()` still returns null, so `requireAuth()` short-circuits before any DB read. Same contract as 3B / 3C.
+- **ActivityLog state today**: `writeActivityLog()` is the deferred no-op stub from 3A. The 3D-1 POST route calls it at the `TASK_CREATE` semantic point so when Step 4 wires real writes, the audit trail lights up without route churn.
+- **Tenant isolation**: every read filters by `firmId: session.firmId`. POST validates `clientId` / `reviewerId` / every `assigneeId` belongs to the caller's firm; cross-firm hits return 404 with a server-side `console.warn` for future forensics. PLATFORM_OWNER without a firm context cannot use these routes - they get a 400 ("No firm context for this session.").
+- **ARTICLE_STAFF scope**: server-side enforced per Decision C1. GET list applies `where.OR = [{ createdById: userId }, { assignees: { some: { userId } } }]` for ARTICLE_STAFF. GET one returns 404 if the task exists in the firm but the caller is neither creator nor assignee. No client-supplied filter can widen the scope.
+- **Section 25 security constraints honoured**:
+  - 25.4 #1-#15: `requireAuth()` first; server-side `requirePermission`; tenant filter; cross-firm 404; 400 only for missing firm context; 422 for validation; no PLATFORM_OWNER all-firm; Zod on every input; max length on text fields; no raw SQL; no secrets in responses or logs; generic 500 messages; no stack traces; `try/catch` around every Prisma call; `console.warn` on cross-firm 404 attempts.
+  - 25.5: Decision G length caps consumed via `task-constants.ts`; Decision H `.strict()` on POST body; Decision I not yet exercised (no free-text reasons in 3D-1).
+- **Out of scope (intentional, per Pankaj 2026-05-04 unattended-execution approval)**:
+  - PATCH `/api/tasks/[id]` (3D-2).
+  - POST `/api/tasks/[id]/notes` (3D-2).
+  - PATCH `/api/tasks/[id]/assignees` (3D-2).
+  - POST `/api/tasks/[id]/close` (3D-3).
+  - POST `/api/tasks/[id]/reopen` (3D-3).
+  - POST `/api/tasks/[id]/cancel` (3D-3).
+  - `Action.TASK_REOPEN`, `Action.TASK_CANCEL` (added in 3D-3).
+  - Any schema or migration change.
+  - `writeActivityLog()` implementation (remains no-op until Step 4).
+  - `requireEntitlement()` implementation (deferred to first paywall-gated route).
+  - Writing Assist (deferred Phase 4/5 capability).
+  - No package install, no dependency change, no Netlify config change, no env var change.
+  - No commits / pushes by agent.
+- **Testing required**: Pankaj on Windows from `02_App\tos-app`: `npm run uat:check` (lint + db:validate + build). **Per AGENTS G3, the agent's bash sandbox cannot reliably run any of the three steps** on this OneDrive mount today — `npm`'s JSON.parse saw trailing-NULL phantom corruption in `package.json` (file tool confirms `package.json` is clean on the actual filesystem, 35 lines, valid JSON; this is a G2 phantom-view artifact, not an actual file corruption). Per AGENTS G2 the file tool is authoritative. Pankaj's PowerShell will produce real validation results. Code-level review via the file tool is clean: all four files have well-formed TypeScript, correct imports, correct types, and follow the 3B / 3C / Activity-route patterns.
+- **Status**: drafted locally pending Pankaj's `npm run uat:check` (lint + db:validate + build) and explicit commit/push approval.

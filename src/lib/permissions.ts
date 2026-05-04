@@ -30,6 +30,12 @@ export const Action = {
   TASK_ADD_NOTE: "TASK_ADD_NOTE",
   TASK_MOVE_TO_REVIEW: "TASK_MOVE_TO_REVIEW",
   TASK_CLOSE: "TASK_CLOSE",
+  // ARTICLE_STAFF holds TASK_VIEW but the route layer enforces an
+  // own-or-assigned scope (per Decision C1) for that role. FIRM_ADMIN /
+  // PARTNER / MANAGER see firm-wide tasks within tenant.
+  // TASK_REOPEN and TASK_CANCEL are added in 3D-3 (lifecycle actions
+  // sub-wave) per Decision A1 - not present in 3D-1.
+  TASK_VIEW: "TASK_VIEW",
   // Clients
   CLIENT_MANAGE: "CLIENT_MANAGE",
   CLIENT_VIEW: "CLIENT_VIEW",
@@ -79,6 +85,7 @@ const FIRM_ROLE_PERMISSIONS: Record<FirmRoleCode, ActionCode[]> = {
     Action.TASK_ADD_NOTE,
     Action.TASK_MOVE_TO_REVIEW,
     Action.TASK_CLOSE,
+    Action.TASK_VIEW,
     Action.CLIENT_MANAGE,
     Action.CLIENT_VIEW,
     Action.TEAM_MANAGE,
@@ -89,6 +96,7 @@ const FIRM_ROLE_PERMISSIONS: Record<FirmRoleCode, ActionCode[]> = {
     Action.TASK_CREATE,
     Action.TASK_ADD_NOTE,
     Action.TASK_MOVE_TO_REVIEW,
+    Action.TASK_VIEW,
     Action.CLIENT_MANAGE,
     Action.CLIENT_VIEW,
     Action.TEAM_VIEW,
@@ -99,6 +107,7 @@ const FIRM_ROLE_PERMISSIONS: Record<FirmRoleCode, ActionCode[]> = {
     Action.TASK_CREATE,
     Action.TASK_ADD_NOTE,
     Action.TASK_MOVE_TO_REVIEW,
+    Action.TASK_VIEW,
     Action.CLIENT_MANAGE,
     Action.CLIENT_VIEW,
     Action.TEAM_VIEW,
@@ -107,6 +116,7 @@ const FIRM_ROLE_PERMISSIONS: Record<FirmRoleCode, ActionCode[]> = {
   ],
   ARTICLE_STAFF: [
     Action.TASK_ADD_NOTE,
+    Action.TASK_VIEW,
     Action.CLIENT_VIEW,
     Action.TEAM_VIEW,
     Action.REPORTS_VIEW_OWN,
