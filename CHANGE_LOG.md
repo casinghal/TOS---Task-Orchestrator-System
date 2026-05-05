@@ -765,3 +765,29 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
   - No commits / pushes by agent.
 - **Testing required**: Pankaj on Windows from `02_App\tos-app`: `git status --short` (verify expected file set is staged after `git add`), then `npm run uat:check` (lint + db:validate + build). Per AGENTS G3, the agent's bash sandbox cannot reliably run `npm` on this OneDrive mount. Code-level review via the file tool is clean: all three files have well-formed TypeScript; correct imports (`zod`, `prisma`, `api-helpers`, `permissions`, `team-constants`); correct Prisma usage (`findMany` / `findUnique` / `count` with proper `include`); response shape matches the approved 7 fields; cross-firm 404 + `console.warn` mirrors the 3D pattern; locked-by-default contract preserved. Expected build route table additions: `/api/team` (GET) and `/api/team/[id]` (GET).
 - **Status**: drafted locally pending Pankaj's `npm run uat:check` (lint + db:validate + build) and explicit commit/push approval.
+
+---
+
+## C-2026-05-05-03 - Post-3E-1 deployment sync
+
+- **Date**: 2026-05-05
+- **Task**: Documentation-only post-deployment sync for Section 14 Step 3E-1. The 3E-1 commit `caafcd2` (`Section 14 Step 3E-1: Add team foundation and read routes`) was pushed to `origin/main` and Netlify-verified live on 2026-05-05. Netlify deploy `69f9580d6f2a9600082977c2` reached state `ready` at 02:38:52 UTC; full commit ref `caafcd2220201e319304f1826e888a416b592ec2`; 46-second build; plugin success; 23 new files uploaded. `GET /api/team`, `GET /api/team/dummy-id-for-401-check`, `GET /api/tasks`, and `GET /api/activity` all returned 401 with the standard `{"ok":false,"message":"Authentication required."}` envelope, confirming the locked-by-default contract holds end-to-end across the Tasks (3D), Activity (3C), and Team (3E-1) route groups. ChatGPT's earlier same-day live check that reported `/api/team` as 404 was Netlify deploy lag (the check ran before the build at 02:38:52 UTC completed and hit the previous live deploy at commit `96c57db`); not a route defect. This sync entry advances the `CURRENT_STATUS.md` "Latest verified runtime/code commit" SHA marker from `8bcf4d1` to `caafcd2`, replaces drafted-locally wording in `CURRENT_STATUS.md` and `MASTER_PROJECT.md` with deployed-and-verified wording, and keeps 3E-2 (team mutations) and 3F (modules) as pending in Section 14 Step 3.
+- **Files changed**:
+  - `CURRENT_STATUS.md` - **(a)** Latest verified runtime/code commit advanced from `8bcf4d1` (`Section 14 Step 3D-3: Add tasks lifecycle actions (close + reopen + cancel)`) to `caafcd2` (`Section 14 Step 3E-1: Add team foundation and read routes`). **(b)** The brief deployment confirmation paragraph rewritten to cite the 3E-1 routes (`/api/team` and `/api/team/[id]` returning 401 locked-by-default) plus the 3D + 3C regression checks; Netlify deploy ID and timing captured. **(c)** Step 3 line in Current Stage block updated to mark 3E-1 DONE alongside 3A / 3B / 3C / 3D-1 / 3D-2 / 3D-3 with commit SHAs cited; pending list trimmed to 3E-2 + 3F. **(d)** Repo Health 3E-1 bullet rewritten: "drafted locally pending validation / commit / push" replaced with "pushed, deployed, and Netlify-verified" plus the live URL, deploy ID, build time, plugin status, and full envelope citation; the deploy-lag explanation for the earlier 404 is captured. **(e)** Last-updated header refreshed to also cite C-2026-05-05-02 (3E-1 push and deploy) and C-2026-05-05-03 (this doc-sync wave).
+  - `MASTER_PROJECT.md` - Section 14 Step 3 line updated: 3E-1 marked DONE with commit `caafcd2` cited alongside 3A / 3B / 3C / 3D-1 / 3D-2 / 3D-3; full Section 14 Step 3D and Step 3E-1 marked complete; pending route groups remain `team/` 3E-2 (mutations) and `modules/` (3F). Section 0 metadata NOT bumped — this is an operational status sync, not a new MASTER governance section. Prior post-push doc-syncs (post-3D-1, post-3D-2, post-3D-3) followed the same convention of skipping Section 0 bumps for status syncs.
+  - `CHANGE_LOG.md` - this entry.
+- **Reason**: Per Synchronization Rule #8 of MASTER Section 24.4, documentation-only commits do not advance the "Latest verified runtime/code commit" SHA marker. The 3E-1 wave (C-2026-05-05-02) was a code commit that DID advance the runtime; this sync wave advances the SHA marker accordingly. Replacing the drafted-locally wording is the standard post-push doc-sync pattern (mirrors the post-3D-1 sync C-2026-05-04-02, post-3D-2 sync C-2026-05-04-04, and post-3D-3 sync C-2026-05-04-06). Capturing the deploy-lag diagnosis explicitly in CURRENT_STATUS prevents a future audit from misreading the same-day 404 as a route defect.
+- **Out of scope (intentional)**:
+  - No code changes.
+  - No schema changes.
+  - No route changes.
+  - No 3E-2 planning or implementation.
+  - No 3F planning or implementation.
+  - No Step 4 Auth work.
+  - No Step 5 Persistence work.
+  - No Platform Ownership Register population.
+  - No `DECISION_LOG.md` entry (no genuine new decision in this wave; per Pankaj's instruction, DECISION_LOG is left untouched).
+  - No `AGENTS.md` change.
+  - No commits / pushes by agent.
+- **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave.
+- **Status**: completed pending Pankaj's commit and push approval.
