@@ -654,3 +654,29 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
   - No commits / pushes by agent.
 - **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave.
 - **Status**: completed pending Pankaj's commit and push approval.
+
+---
+
+## C-2026-05-04-07 - Step 3 checkpoint audit + governance touchup (F3, F4, F5)
+
+- **Date**: 2026-05-04
+- **Task**: Documentation-only governance touchup following the Step 3 checkpoint audit run after Section 14 Step 3D close. The audit (run on committed state at runtime/code SHA `8bcf4d1` and doc-sync HEAD `6f8710e`) returned **YELLOW** with five low-severity findings: F1 (clients routes lack `.strict()`), F2 (clients routes lack cross-firm `console.warn`), F3 (Section 23.3 reopen prose did not mention `closureRemarks` clearing), F4 (Section 25.5 conflated edit/close permission requirements), F5 (Section 23.3 cancel wording said "any non-terminal state" but the implemented behaviour rejects `CLOSED`). This touchup fixes F3, F4, F5 in MASTER wording. F1 and F2 are deliberately deferred — they apply to 3B clients routes that predate the "from 3D onward" Section 25.4 / 25.5 guardrails and will be folded into either Step 4 Auth hardening or a separate small clients-route cleanup wave. Code is unchanged in this wave; the code is the approved behaviour and the docs are being aligned to it.
+- **Files changed**:
+  - `MASTER_PROJECT.md` - **(a)** Section 23.3 reopen block (F3): expanded from 6 bullets to 7 bullets. Added explicit mention that reopen routes through `POST /api/tasks/[id]/reopen` only (PATCH cannot reopen). Updated the field-clear bullet to list all three fields cleared on reopen (`closedAt`, `closedById`, AND `closureRemarks` per D-2026-05-04-03). Added a new bullet stating historical closure rationale remains preserved through `TaskNote` + `TASK_CLOSE` ActivityLog `{ noteId }` reference, and that `Task.closureRemarks` is current-state only, not the audit anchor. ActivityLog bullet refined to mention `{ noteId }` metadata. **(b)** Section 23.3 cancel block (F5): replaced the loose "any non-terminal state" wording with explicit allowed-from list (`OPEN`, `IN_PROGRESS`, `PENDING_CLIENT`, `PENDING_INTERNAL`, `UNDER_REVIEW`). Added a new bullet stating `CLOSED` tasks cannot be cancelled directly and that the reopen-then-cancel path is the documented route if cancellation is required after closure. Added a new bullet stating already-`CANCELLED` tasks cannot be cancelled again. Added a role-restriction bullet citing Section 23.5 (ARTICLE_STAFF cannot cancel even when creator; MANAGER creator-based cancel only with `isCreator` context). ActivityLog bullet refined to mention `{ noteId }` metadata. **(c)** Section 25.5 permission wording (F4): replaced the single conflated bullet ("PARTNER / MANAGER edit / close requires `isCreator` or `isReviewer` context computed server-side") with three precise bullets — task edit (PARTNER / MANAGER need `isCreator` OR `isReviewer`), task close + task reopen (PARTNER / MANAGER need `isReviewer` only — assignees and creators cannot self-close), task cancel (FIRM_ADMIN always; PARTNER always; MANAGER only if `isCreator`; ARTICLE_STAFF never). The existing line 936 ARTICLE_STAFF restriction bullet is preserved unchanged.
+  - `CURRENT_STATUS.md` - new Repo Health bullet recording the Step 3 checkpoint audit completion: result YELLOW; F3 / F4 / F5 fixed in this touchup; F1 / F2 deferred to Step 4 Auth hardening or a separate clients-route cleanup wave; Section 14 Step 3D remains closed; 3E remains pending. Last-updated header refreshed to also cite this wave (C-2026-05-04-07).
+  - `CHANGE_LOG.md` - this entry.
+- **Reason**: The Step 3 checkpoint audit was a recommended control input at the 3D close → 3E start boundary (per AGENTS G8 / MASTER Section 24.6). It surfaced three low-severity wording-precision items in MASTER Section 23.3 and 25.5 where the prose drifted from the approved code behaviour locked at D-2026-05-04-02 (corrected PATCH design) and D-2026-05-04-03 (Decision M1 + reopen field-clear correction). Aligning the docs to the code before 3E plan cites Section 23 and Section 25 as constraints removes drift risk for 3E. F1 / F2 are governance-compliant by exact reading of "from 3D onward" guardrail scope, and the surgical retro fixes are cheaper to bundle into Step 4 Auth hardening (which touches every route anyway) than to ship as a standalone clients-route cleanup wave.
+- **Out of scope (intentional)**:
+  - No code changes. Code is the approved behaviour; docs are aligning to it.
+  - No schema changes.
+  - No route changes.
+  - No 3E planning.
+  - No 3E implementation.
+  - No Step 4 Auth work.
+  - No Step 5 Persistence work.
+  - No Platform Ownership Register population.
+  - No `DECISION_LOG.md` entry — per Pankaj's preference, this is a documentation alignment / touchup, not a new product decision. The underlying decisions (D-2026-05-04-02 corrected PATCH design, D-2026-05-04-03 Decision M1 + reopen field-clear) already exist; this touchup reflects them in the Section 23 / 25 prose without introducing new policy.
+  - No `AGENTS.md` change.
+  - No commits / pushes by agent.
+- **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave.
+- **Status**: completed pending Pankaj's commit and push approval.

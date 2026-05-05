@@ -607,20 +607,24 @@ The transition map is stored as `TASK_STATUS_TRANSITIONS` in `src/lib/task-const
 
 **Reopen (`CLOSED → IN_PROGRESS`)**:
 
-- Reopen is an **action**, not a persistent status. It is the only way to leave `CLOSED`.
+- Reopen is an **action**, not a persistent status. It is the only way to leave `CLOSED`, and it routes through the dedicated `POST /api/tasks/[id]/reopen` endpoint (3D-3). PATCH `/api/tasks/[id]` cannot reopen a closed task; it returns 422 with a redirect to the reopen endpoint.
 - Default destination state is `IN_PROGRESS`. No other reopen target supported.
 - Allowed actors: `FIRM_ADMIN`, or the original reviewer of the task.
 - A reason (free text, non-empty, trimmed) is required and recorded as a `TaskNote` with `oldStatus = CLOSED`, `newStatus = IN_PROGRESS`, body = the reopen reason.
-- `closedAt` and `closedById` are cleared (set to null).
-- ActivityLog action emitted (when Step 4 lights up writes): `TASK_REOPEN`.
+- All three current-state closure fields on `Task` are cleared on reopen: `closedAt`, `closedById`, AND `closureRemarks` are set to null (per the field-clear correction at D-2026-05-04-03). This preserves the schema invariant "closure fields populated iff status is `CLOSED`".
+- Historical closure rationale is NOT lost on reopen. It remains preserved through (a) the original `TaskNote` row created at close time with `oldStatus = UNDER_REVIEW`, `newStatus = CLOSED`, body mirroring the original `closureRemarks`; and (b) the `TASK_CLOSE` ActivityLog entry's `{ noteId }` reference (when Step 4 lights up writes). `Task.closureRemarks` is a current-state column only, not the audit anchor; the durable record lives on the firm-scoped `TaskNote` row.
+- ActivityLog action emitted (when Step 4 lights up writes): `TASK_REOPEN` with `{ noteId }` metadata pointing to the reopen-event `TaskNote`.
 
-**Cancel (`* → CANCELLED`, terminal)**:
+**Cancel (`<active state> → CANCELLED`, terminal)**:
 
-- Allowed actors: `FIRM_ADMIN`, `PARTNER`, or the task creator.
-- Allowed from any non-terminal state.
+- Allowed actors: `FIRM_ADMIN`, `PARTNER`, or the task creator (subject to the role restriction below).
+- Allowed only from active / non-closed states: `OPEN`, `IN_PROGRESS`, `PENDING_CLIENT`, `PENDING_INTERNAL`, `UNDER_REVIEW`.
+- `CLOSED` tasks cannot be cancelled directly via the cancel endpoint. The cancel endpoint returns 422 with a redirect message ("Reopen first if needed"). If cancellation is required after closure, the task must be reopened first (which returns it to `IN_PROGRESS` per the reopen rules above) and then cancelled. This avoids a synthetic `CLOSED → CANCELLED` direct transition that would bypass the reopen audit event and the closure-field-clear invariant.
+- Already-`CANCELLED` tasks cannot be cancelled again. The cancel endpoint returns 422.
 - A reason (free text, non-empty, trimmed) is required and recorded as a `TaskNote` with `oldStatus = <current>`, `newStatus = CANCELLED`, body = the cancel reason.
 - `CANCELLED` is terminal; cannot be reopened. To resume work, a new task must be created.
-- ActivityLog action emitted (when Step 4 lights up writes): `TASK_CANCEL`.
+- Role restriction (per Section 23.5): `ARTICLE_STAFF` cannot cancel a task even when they are the creator. Creator-based cancel applies only to `MANAGER` (with `isCreator` context); `FIRM_ADMIN` and `PARTNER` always.
+- ActivityLog action emitted (when Step 4 lights up writes): `TASK_CANCEL` with `{ noteId }` metadata pointing to the cancel-event `TaskNote`.
 
 ### 23.4 Inactive user and inactive client handling
 
@@ -934,7 +938,9 @@ Permanent route-construction checklist:
 - `reviewerId` belongs to firm AND is an active `FirmMember` on POST and reviewer-change PATCH
 - Every `assigneeId` belongs to firm AND is an active `FirmMember` on POST and assignee mutation
 - ARTICLE_STAFF cannot reassign / close / cancel; can only act on own tasks for status moves to `UNDER_REVIEW`
-- PARTNER / MANAGER edit / close requires `isCreator` or `isReviewer` context computed server-side
+- Task edit by PARTNER / MANAGER requires `isCreator` OR `isReviewer` context computed server-side
+- Task close and task reopen require `isReviewer` context for PARTNER / MANAGER (FIRM_ADMIN always; ARTICLE_STAFF never; assignees and creators cannot self-close per Section 23.3)
+- Task cancel follows the approved lifecycle matrix: FIRM_ADMIN always; PARTNER always; MANAGER only if `isCreator` context; ARTICLE_STAFF never (even when creator, per Section 23.5)
 - Status transitions strictly use `TASK_STATUS_TRANSITIONS` map from `src/lib/task-constants.ts` (created during 3D)
 - close / reopen / cancel use dedicated POST endpoints (not PATCH discriminator)
 - Length caps locked in `task-constants.ts`: title 200; description 4000; notes / remarks / reasons 4000; assignees per task max 50; pagination max 200 (Decision G in 3D plan)
