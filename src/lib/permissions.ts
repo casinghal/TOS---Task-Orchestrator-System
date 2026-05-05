@@ -99,6 +99,7 @@ const FIRM_ROLE_PERMISSIONS: Record<FirmRoleCode, ActionCode[]> = {
     Action.CLIENT_MANAGE,
     Action.CLIENT_VIEW,
     Action.TEAM_MANAGE,
+    Action.TEAM_VIEW,
     Action.REPORTS_VIEW_ALL,
     Action.ACTIVITY_VIEW,
   ],

@@ -680,3 +680,42 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
   - No commits / pushes by agent.
 - **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave.
 - **Status**: completed pending Pankaj's commit and push approval.
+
+---
+
+## C-2026-05-05-01 - Pre-3E permissions matrix touchup: add TEAM_VIEW to FIRM_ADMIN base array
+
+- **Date**: 2026-05-05
+- **Task**: Step 3 checkpoint follow-up. Single-line code edit to `src/lib/permissions.ts` adding `Action.TEAM_VIEW` to the FIRM_ADMIN base permission array. Discovered during the 3E-1 plan re-read of `permissions.ts`: FIRM_ADMIN currently has `TEAM_MANAGE` but not `TEAM_VIEW` in the base array, which means a FIRM_ADMIN session would fail `requireAuth(Action.TEAM_VIEW)` once the 3E-1 read routes ship. The Step 3 checkpoint audit (C-2026-05-04-07) did not catch this because no current route consumes `TEAM_VIEW`. This is a pre-condition fix shipping before 3E-1 implementation. Path-1 chosen: ship as a separate tiny pre-3E-1 commit rather than bundling into 3E-1 implementation, so the 3E-1 wave stays purely about new route addition. Locked-by-default contract is unaffected: no new route exists yet to consume this permission grant; `requireSession()` still returns null; the only observable behaviour change today is the unit-level matrix evaluation (FIRM_ADMIN.hasPermission(TEAM_VIEW) now returns true instead of false) — this has no runtime exposure until 3E-1 routes land and Step 4 lights up real sessions.
+- **Files changed**:
+  - `src/lib/permissions.ts` - one-line addition: `Action.TEAM_VIEW` inserted into the FIRM_ADMIN base array immediately after `Action.TEAM_MANAGE`. Mirrors the existing `Action.CLIENT_MANAGE` / `Action.CLIENT_VIEW` pairing pattern. No other permission, action constant, context-aware rule, label, or normalizer changed. Total file diff: +1 line (now 14 entries in FIRM_ADMIN base array vs 13 previously). PARTNER, MANAGER, and ARTICLE_STAFF base arrays untouched (they already have `TEAM_VIEW`). PLATFORM_OWNER bypass untouched.
+  - `DECISION_LOG.md` - new entry `D-2026-05-05-01 - Permissions matrix touchup: add TEAM_VIEW to FIRM_ADMIN base array (Step 3 checkpoint follow-up; pre-3E-1 precondition)`.
+  - `CURRENT_STATUS.md` - new Repo Health bullet recording the pre-3E permissions touchup, the 3E-1 decision lock (A1/B1/C1/D1/E1), and the explicit fact that 3E-1 implementation has NOT started. Last-updated header refreshed to also cite this wave.
+  - `CHANGE_LOG.md` - this entry.
+- **Reason**: 3E-1 read routes (`GET /api/team`, `GET /api/team/[id]`) gate on `requireAuth(Action.TEAM_VIEW)`. The discovered gap means FIRM_ADMIN — the highest firm-level role — would have been blocked from team list / read access on day one of 3E-1. Fixing in advance keeps 3E-1 as a clean additive route wave with zero coincidental matrix changes. Path-1 selected over Path-2 (bundle into 3E-1) because (a) the fix is isolated and reviewable on its own; (b) the 3E-1 commit message stays accurate ("Add team foundation and read routes"); (c) keeps blast radius minimal in the unlikely event of an issue.
+- **Permissions matrix change** (full text in `permissions.ts`):
+  - FIRM_ADMIN base array: + `TEAM_VIEW` (now: TASK_CREATE, TASK_EDIT, TASK_ADD_NOTE, TASK_MOVE_TO_REVIEW, TASK_CLOSE, TASK_VIEW, TASK_REOPEN, TASK_CANCEL, CLIENT_MANAGE, CLIENT_VIEW, TEAM_MANAGE, TEAM_VIEW, REPORTS_VIEW_ALL, ACTIVITY_VIEW)
+  - PARTNER: unchanged (already has TEAM_VIEW)
+  - MANAGER: unchanged (already has TEAM_VIEW)
+  - ARTICLE_STAFF: unchanged (already has TEAM_VIEW)
+  - PLATFORM_OWNER: unchanged (full bypass)
+- **Auth state today**: every protected route still returns 401 by construction. `requireSession()` continues to return null in `api-helpers.ts:49`. The matrix change is dormant until Step 4 wires real sessions AND 3E-1 routes consume it. No runtime or wire-format change. Same locked-by-default contract.
+- **ActivityLog state today**: unchanged. `writeActivityLog()` remains the deferred no-op. No new call sites added.
+- **Tenant isolation**: unchanged. No route added; no new query.
+- **Section 25 security constraints honoured**:
+  - 25.4 #1-#15: no new route to evaluate; existing 3B/3C/3D routes unaffected by the matrix change because none of them consume `TEAM_VIEW`.
+  - 25.5: not applicable to this wave (no body schema, no route surface change).
+- **Out of scope (intentional)**:
+  - No 3E-1 route implementation. `src/app/api/team/route.ts` and `src/app/api/team/[id]/route.ts` are NOT created in this wave.
+  - No `src/lib/team-constants.ts` creation (deferred to 3E-1 implementation per decision 3E-1-D).
+  - No schema or migration change.
+  - No `src/lib/api-helpers.ts` change.
+  - No `src/lib/task-constants.ts` change.
+  - No 3B / 3C / 3D route file change.
+  - No `MASTER_PROJECT.md` change (no governance section update needed; the matrix gap was an implementation detail, not a Section 10 / Section 23 wording issue).
+  - No `AGENTS.md` change.
+  - No `next.config.ts`, `netlify.toml`, `package.json`, `package-lock.json`, env file, or `prisma/` change.
+  - No Platform Ownership Register population.
+  - No commits / pushes by agent.
+- **Testing required**: Pankaj on Windows from `02_App\tos-app`: `npm run lint` (must pass), `npm run db:validate` (must pass — no schema change so trivially passes), `npm run build` (must pass — verifies the one-line TS change compiles). Per AGENTS G3, the agent's bash sandbox cannot reliably run these on this OneDrive mount. Code-level review via the file tool is clean: the addition is a single `Action.TEAM_VIEW,` line inserted between two existing entries; no syntax change; no new imports needed (Action.TEAM_VIEW already exists in the Action constant block).
+- **Status**: drafted locally pending Pankaj's `npm run lint` + `npm run db:validate` + `npm run build` validation and explicit commit/push approval.
