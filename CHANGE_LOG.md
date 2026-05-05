@@ -986,3 +986,33 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
   - No commits / pushes by agent.
 - **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave.
 - **Status**: completed pending Pankaj's commit and push approval.
+
+---
+
+## C-2026-05-06-01 - Section 14 reorder approval: Step 4 before 3F
+
+- **Date**: 2026-05-06
+- **Task**: Documentation-only governance wave that formally approves the Section 14 reorder previously parked at D-2026-05-05-03. The reorder moves Step 4 Auth/RBAC ahead of 3F Modules. Trigger: 3E is now fully closed (3E-1 + 3E-2A + 3E-2B all deployed and Netlify-verified at runtime SHA `c5535f3`); the offline workpack on 2026-05-06 surfaced the critical finding that the 5 origin firms/tenant routes are NOT protected by `requireAuth(...)` today and must be hardened in Step 4 per D-2026-04-30-15 Decision 5. Reorder is approved with HIGH confidence per the offline workpack analysis. Step 4 implementation has NOT started; this wave records the decision only.
+- **Files changed**:
+  - `DECISION_LOG.md` - new entry `D-2026-05-06-01 - Section 14 reorder: Step 4 before 3F` capturing the decision, options considered, chosen option, rationale (including the critical origin-routes-not-protected finding), risks accepted, guardrails, impact, revisit trigger, and what remains unchanged.
+  - `CURRENT_STATUS.md` - **(a)** Last-updated header refreshed to also cite C-2026-05-06-01 (this wave). **(b)** Step 3 line in Current Stage block updated to mark 3F as DEFERRED until after Step 4 per the formally approved reorder; explicit anchor that the 5 origin firms/tenant routes are NOT auth-gated today and must be hardened in Step 4. **(c)** Step 4 line in Current Stage block updated to read "PARTIALLY DONE; APPROVED AS NEXT CONTROLLED STEP per D-2026-05-06-01" with the critical-scope-includes-origin-routes anchor and the 4A→4G recommended sub-wave plan. **(d)** New Repo Health bullet capturing the reorder approval with the new locked sequence (3D ✓ → 3E ✓ → Step 4 → 3F → Step 5), the 2026-05-06 trigger, the offline workpack reference, and the explicit "3F is NOT cancelled; it is repositioned" anchor. **(e)** Priority Tasks list rewritten to lead with Step 4A through Step 4G as items 1-7, then 3F as item 8, then Step 5 as item 9, then preserved deferred items renumbered 10-13.
+  - `MASTER_PROJECT.md` - **(a)** Section 14 Step 3 line updated: 3F marked as DEFERRED until after Step 4 per the formally approved reorder at D-2026-05-06-01; 3F is NOT cancelled, it is repositioned. **(b)** Section 14 Step 4 line updated: "PARTIALLY DONE" extended to "PARTIALLY DONE; APPROVED AS NEXT CONTROLLED STEP per D-2026-05-06-01"; pending list expanded to include explicit reference to hardening the 5 origin firms/tenant routes that are NOT auth-gated today, F1/F2 cleanup folding, and the audited PLATFORM_OWNER cross-firm impersonation flow per Section 25.6; explicit "Step 4 implementation has NOT started; only the reorder approval is committed" anchor; recommended sub-wave plan (4A through 4G) cited. Section 0 metadata NOT bumped (no new MASTER governance section in this wave). Sections 22-25 unchanged.
+  - `CHANGE_LOG.md` - this entry.
+- **Reason**: 3E is now fully closed and the revisit trigger from D-2026-05-05-03 has fired. The offline workpack analysis on 2026-05-06 found no project-file contradiction to approving the reorder, confirmed HIGH confidence, and surfaced the critical operational finding that the 5 origin firms/tenant routes are public today (no `requireAuth(...)` gate) — closing this exposure is itself a strong argument for Step 4 next. Building 3F before Step 4 would create a cross-firm escape pattern that Step 4 would later have to retrofit; building Step 4 first keeps the sequence safe and avoids retrofit work. AGENTS G11 conservative Stage 0 tenant defaults explicitly state "no Platform Owner all-firm escape before audited impersonation" — reorder aligns with the codified rule.
+- **Critical operational finding recorded**: the 5 origin firms/tenant routes (`/api/firms/`, `/api/firms/[firmId]/`, `/api/firms/[firmId]/access/`, `/api/firms/[firmId]/members/`, `/api/tenant/validate/`) are NOT protected by `requireAuth(...)` today. They use `tenant-guard.ts` only and accept anonymous requests. Per D-2026-04-30-15 Decision 5, hardening them is a Step 4 task. This finding is recorded explicitly in Step 4 scope so it cannot be silently dropped during sub-wave planning.
+- **Out of scope (intentional)**:
+  - No code changes.
+  - No schema changes.
+  - No route changes.
+  - No 3F implementation.
+  - No Step 4 implementation. The reorder approval is documentation-only; Step 4A architecture confirmation will be the FIRST Step 4 sub-wave and lands in a separate planning + implementation cycle.
+  - No Step 5 work.
+  - No Platform Ownership Register population.
+  - No Supabase changes (no project-level config, no Auth setup, no RLS).
+  - No Netlify settings changes (no env-var changes, no domain changes, no build-config changes).
+  - No GitHub settings changes.
+  - No `AGENTS.md` change. G1-G11 remain as-is.
+  - No `prisma/schema.prisma`, `prisma/migrations/`, `package.json`, `package-lock.json`, `next.config.ts`, `netlify.toml`, env file, or `src/` change.
+  - No commits / pushes by agent.
+- **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave. Latest verified runtime/code commit remains `c5535f3` (NOT advanced — this is a documentation-only commit per Synchronization Rule #8).
+- **Status**: completed pending Pankaj's commit and push approval. After this wave commits, the project is unblocked to proceed to Step 4A architecture-confirmation planning (next prompt).

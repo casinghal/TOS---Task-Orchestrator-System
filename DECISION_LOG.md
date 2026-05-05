@@ -287,3 +287,57 @@ Historical Phase-0 product decisions (pre-takeover) live in `00_Project_Memory/T
   - **Add a Reason audit trail anchor table (TeamNote)**: rejected for 3E-2B. Out of scope; ActivityLog metadata `{ reason }` is sufficient at Stage 0. Could be revisited if Step 4 audit query requirements demand a distinct firm-scoped entity.
   - **Bundle 3E-2A and 3E-2B into one wave**: rejected at the 3E-2 split; preserved here. Smaller blast radius per wave; cleaner Tier 1 review.
 - **Impact**: 3E-2B implementation (this wave) consumes F1-deactivate / G1-deactivate / H1 / 3E-2-M1 / 3E-2-N1 / 3E-2B-P as locked constraints. Three code files modified: `src/lib/team-constants.ts` (EXTEND with `MAX_TEAM_NOTE_LENGTH = 4000`); `src/app/api/team/[id]/deactivate/route.ts` (NEW, POST only — auth-entry gate, firmId check, body parse with REQUIRED reason, target lookup, cross-firm 404 + console.warn, mutation auth, self-protection guard, last-active-FIRM_ADMIN guard, already-inactive precondition, FirmMember.isActive=false update, ActivityLog `TEAM_MEMBER_DEACTIVATE` with `{ reason }`); `src/app/api/team/[id]/reactivate/route.ts` (NEW, POST only — auth-entry gate, firmId check, body parse with REQUIRED reason, target lookup, cross-firm 404 + console.warn, mutation auth, already-active precondition, FirmMember.isActive=true update, ActivityLog `TEAM_MEMBER_REACTIVATE` with `{ reason }`). No `src/lib/permissions.ts` change (`TEAM_VIEW` + `TEAM_MANAGE` matrix is sufficient). No `src/app/api/team/route.ts` change (no POST/GET regression). No `src/app/api/team/[id]/route.ts` change (no PATCH/GET regression). No schema change. No package / config / env change. No `task-constants.ts` change. No 3B / 3C / 3D route file change. No `AGENTS.md` change. ActivityLog action strings introduced: `TEAM_MEMBER_DEACTIVATE` (deactivate POST with `metadataJson: { reason }`), `TEAM_MEMBER_REACTIVATE` (reactivate POST with `metadataJson: { reason }`); both remain deferred no-ops via `writeActivityLog()` until Step 4. Locked-by-default 401 contract preserved: `requireSession()` continues to return null; both new routes return 401 by construction until Step 4 wires real Supabase Auth. Section 14 sequence untouched. After this wave commits and deploys, only 3F (modules) remains pending in Section 14 Step 3 under the locked sequence (subject to parked reorder per D-2026-05-05-03). 3F reorder remains parked, not approved. Step 4 Auth and Step 5 Persistence remain pending.
+
+## D-2026-05-06-01 - Section 14 reorder: Step 4 before 3F
+
+- **Decision**: Approve reorder of Section 14 so Step 4 Auth/RBAC happens before 3F Modules. The previously parked option from D-2026-05-05-03 is now formally approved.
+- **Previous state**: 3F reorder was parked under D-2026-05-05-03 with the explicit revisit trigger of "after 3E is fully closed (3E-2A + 3E-2B both deployed and verified), before starting 3F planning."
+- **Trigger**: 3E is now fully closed (3E-1 + 3E-2A + 3E-2B all deployed and Netlify-verified at runtime SHA `c5535f3`). The revisit trigger has fired.
+- **Chosen sequence**:
+  1. 3D Tasks complete (3D-1 + 3D-2 + 3D-3 deployed and verified)
+  2. 3E Team complete (3E-1 + 3E-2A + 3E-2B deployed and verified)
+  3. **Step 4 Auth/RBAC next**
+  4. **3F Modules after Step 4**
+  5. Step 5 Persistence/UI cutover after Step 4 AND 3F
+- **Options considered**:
+  - **Option A**: keep locked sequence — 3F Modules next, then Step 4 Auth/RBAC. Rejected.
+  - **Option B**: approve reorder — Step 4 Auth/RBAC next, then 3F Modules. **Chosen.**
+- **Chosen option**: **Option B.**
+- **Rationale**:
+  - 3F Modules is the first route group where PLATFORM_OWNER must operate cross-firm (module-flag toggling per firm from the platform side). Building it before the audited PLATFORM_OWNER impersonation flow lands in Step 4 risks creating a cross-firm escape pattern that Step 4 would later have to retrofit onto live routes.
+  - 3F is likely to touch entitlement-adjacent or firm-level feature toggling logic. The `requireEntitlement()` helper (Section 23.8) is a future-only paywall component; building 3F before the auth foundation either forces premature paywall implementation or creates retrofit work.
+  - Step 4 establishes real session resolution, firm context, role resolution, and route hardening. These are foundational; everything downstream rests on them.
+  - **Critical finding from the offline workpack (2026-05-06)**: the five origin firms/tenant routes (`/api/firms/`, `/api/firms/[firmId]/`, `/api/firms/[firmId]/access/`, `/api/firms/[firmId]/members/`, `/api/tenant/validate/`) are NOT protected by `requireAuth(...)` today. They use `tenant-guard.ts` only and accept anonymous requests. Per D-2026-04-30-15 Decision 5, hardening them is a Step 4 task. Reordering closes this exposure sooner.
+  - Step 4 also enables real `writeActivityLog()` writes, which retroactively activates the audit trail across all 13 protected routes already in 3B/3C/3D/3E. The audit value of Step 4 dwarfs the feature value of 3F.
+  - F1/F2 deferred clients-route cleanup (`.strict()` + `console.warn` per CHANGE_LOG C-2026-05-04-07) folds naturally into Step 4 hardening of every existing route.
+  - MASTER Section 25.6 names "audited Platform Owner impersonation: separate flow that writes ActivityLog `CROSS_FIRM_IMPERSONATE` with target firmId" as a Step 4 requirement; 3F is the first consumer.
+  - AGENTS G11 conservative Stage 0 tenant defaults state: "no Platform Owner all-firm escape before audited impersonation". Building 3F first violates this rule unless 3F intentionally degrades scope. Reordering aligns the sequence with the codified rule.
+  - Offline workpack recommendation: APPROVE REORDER with HIGH confidence. No project-file contradiction found.
+- **Risks accepted**:
+  - Step 4 is harder than 3F. Section 14 sits on `c5535f3` for the duration of Step 4.
+  - Step 4 may stretch timeline if Supabase Auth integration surfaces unforeseen complications.
+  - 3F sits pending longer than under the original sequence; module-flag toggling stays UI-only (localStorage) for that time. Acceptable because module toggling is not user-facing in Stage 0 (PLATFORM_OWNER only).
+- **Guardrails**:
+  - Step 4 must be split into small sub-waves (recommended: 4A architecture, 4B real `requireSession()`, 4C role/firm context, 4D route regression + origin firms/tenant hardening + F1/F2 cleanup, 4E ActivityLog real writes, 4F Platform Owner impersonation, 4G UAT). No big-bang implementation.
+  - Each Step 4 sub-wave is independently committable with green Tier 1 consistency check.
+  - Each Step 4 sub-wave passes the route regression matrix (offline workpack Section 10) and the tenant leakage test plan (Section 11) before close.
+  - Step 5 (UI cutover from localStorage to API consumption) does NOT start until BOTH Step 4 AND 3F are closed.
+  - 3F plan must be re-presented as a fresh planning turn after Step 4 closes; any new dependencies surfaced during Step 4 must be folded into the 3F design before 3F implementation begins.
+  - Platform Owner cross-firm behaviour must be explicit, auditable, and controlled via the Step 4F impersonation flow that writes a `CROSS_FIRM_IMPERSONATE` ActivityLog row before any cross-firm action proceeds.
+  - The five origin firms/tenant routes (`firms/`, `firms/[firmId]/`, `firms/[firmId]/access/`, `firms/[firmId]/members/`, `tenant/validate/`) MUST be included in Step 4 hardening scope — not deferred again.
+  - Step 4 must NOT add a new MASTER governance section unless strictly required; existing Sections 22-25 are the canonical reference.
+- **Impact on Section 14**:
+  - Section 14 sequence changes ONLY for the relative order of Step 4 and 3F. All other steps remain in their original positions.
+  - 3F is deferred until after Step 4. 3F is NOT cancelled; it is repositioned.
+  - Step 4 becomes the next controlled implementation area (starting with Step 4A architecture-only confirmation).
+  - Step 5 still remains after Step 4 AND after 3F — the post-3F position is preserved.
+- **Revisit trigger**: if Step 4 surfaces an architectural blocker that materially delays 3F (more than 3 weeks of pure Step 4 work) or surfaces a strong reason 3F should land first after all (none anticipated), raise a fresh decision entry before proceeding. Otherwise this sequence is the locked plan.
+- **What remains unchanged**:
+  - 3D Tasks routes complete and verified (commit `8bcf4d1`).
+  - 3E Team route group complete and verified (commits `caafcd2` + `f94027d` + `c5535f3`).
+  - The locked-by-default 401 contract across all 14 protected routes.
+  - Section 23 task / team operating model (status sets, transition matrix, reopen / cancel rules, inactive-handling).
+  - Section 25 security guardrails (route construction checklist, task-route specifics, Step 4 requirements).
+  - AGENTS G1-G11 (file-edit discipline through pre-major-wave stress test).
+  - Cost-discipline framework (G9; not engaged in Step 4 because no paid spend at Stage 0).
+  - The parked status of any other decisions.
