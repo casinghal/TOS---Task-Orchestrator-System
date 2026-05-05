@@ -18,17 +18,19 @@
 //   crypto-random suffix; placeholder digest must never collide with a
 //   real SHA-256 password hash.
 //
-// Note on 3E-2B: MAX_TEAM_NOTE_LENGTH (deactivate / reactivate reason cap)
-// is NOT added in this file in 3E-2A. It belongs to 3E-2B and lands when
-// the deactivate / reactivate routes are implemented.
+// 3E-2B (D-2026-05-05-06): MAX_TEAM_NOTE_LENGTH = 4000 added for the
+// deactivate / reactivate reason field cap. Mirrors MAX_TASK_NOTE_LENGTH
+// for cross-route consistency.
 //
 // References:
 // - MASTER_PROJECT.md Section 14 Step 3E (team route group).
 // - MASTER_PROJECT.md Section 10 (FirmRole canonical set).
 // - DECISION_LOG D-2026-05-05-02 (3E-1 plan: A1/B1/C1/D1 locked).
 // - DECISION_LOG D-2026-05-05-05 (3E-2A implementation decisions).
+// - DECISION_LOG D-2026-05-05-06 (3E-2B implementation decisions).
 // - CHANGE_LOG C-2026-05-05-02 (3E-1 implementation wave).
 // - CHANGE_LOG C-2026-05-05-05 (3E-2A implementation wave).
+// - CHANGE_LOG C-2026-05-05-07 (3E-2B implementation wave).
 
 import { randomUUID } from "node:crypto";
 
@@ -96,3 +98,11 @@ export const PLACEHOLDER_PASSWORD_HASH_PREFIX = "STEP4_MIGRATE_DISABLED:";
 export function generatePlaceholderPasswordHash(): string {
   return `${PLACEHOLDER_PASSWORD_HASH_PREFIX}${randomUUID()}`;
 }
+
+// --- 3E-2B constants ------------------------------------------------------
+
+// Maximum length of the `reason` field in POST /api/team/[id]/deactivate
+// and POST /api/team/[id]/reactivate bodies. Enforced via Zod at the route
+// layer. Mirrors `MAX_TASK_NOTE_LENGTH` (4000) from `task-constants.ts`
+// for cross-route consistency.
+export const MAX_TEAM_NOTE_LENGTH = 4000;

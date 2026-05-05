@@ -903,3 +903,60 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
   - No commits / pushes by agent.
 - **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave.
 - **Status**: completed pending Pankaj's commit and push approval.
+
+---
+
+## C-2026-05-05-07 - Section 14 Step 3E-2B: Team deactivate/reactivate routes
+
+- **Date**: 2026-05-05
+- **Task**: Section 14 Step 3E sub-wave 2B of the 3E split (3E-1 read shipped at `caafcd2`; 3E-2A add/update shipped at `f94027d`; 3E-2B deactivate/reactivate is this wave). Implements POST `/api/team/[id]/deactivate` and POST `/api/team/[id]/reactivate` per the six decisions locked at D-2026-05-05-06 (post-ChatGPT review). Three code files modified: `src/lib/team-constants.ts` extended with `MAX_TEAM_NOTE_LENGTH = 4000`; `src/app/api/team/[id]/deactivate/route.ts` is NEW (POST only); `src/app/api/team/[id]/reactivate/route.ts` is NEW (POST only). No schema change. No `src/lib/permissions.ts` change (matrix `TEAM_VIEW` + `TEAM_MANAGE` is sufficient). No `src/app/api/team/route.ts` change (no POST/GET regression). No `src/app/api/team/[id]/route.ts` change (no PATCH/GET regression). No package / config / env change. No 3F work. No Step 4 / Step 5 work.
+- **Files changed**:
+  - `src/lib/team-constants.ts` (EXTEND) - added `MAX_TEAM_NOTE_LENGTH = 4000` per Decision 3E-2B-P (REQUIRED reason field cap on both deactivate and reactivate routes; mirrors `MAX_TASK_NOTE_LENGTH` from `task-constants.ts` for cross-route consistency). Comment block updated to cite D-2026-05-05-06 and C-2026-05-05-07. All existing constants preserved unchanged: `FIRM_ROLES`, `TEAM_STATUS_FILTERS`, `DEFAULT_TEAM_PAGE_SIZE`, `MAX_TEAM_PAGE_SIZE`, `DEFAULT_TEAM_STATUS_FILTER`, `MAX_TEAM_NAME_LENGTH`, `PLACEHOLDER_PASSWORD_HASH_PREFIX`, `generatePlaceholderPasswordHash()`.
+  - `src/app/api/team/[id]/deactivate/route.ts` (NEW, ~155 lines, POST only) - `requireAuth(Action.TEAM_VIEW)` for auth-entry only (corrected pattern from D-2026-05-04-02); 400 if `!session.firmId`; `DeactivateMemberSchema` with `.strict()` and REQUIRED `reason` (trimmed, min 1, max `MAX_TEAM_NOTE_LENGTH`); load FirmMember by id with `include: { user: { select: { name, email } } }`; cross-firm check returns 404 with `console.warn("Cross-firm team deactivate attempt", { sessionFirmId, attemptedFirmMemberId, actorId, route })` per Section 25.4 #15; mutation auth via `requirePermission(Action.TEAM_MANAGE)` (FIRM_ADMIN-only — rejects PARTNER / MANAGER / ARTICLE_STAFF); self-deactivation rejected with 422 (`"Cannot deactivate yourself."`) per Decision F1-deactivate; last-active-FIRM_ADMIN protection (G1-deactivate) — `count` of active FIRM_ADMINs in firm; if `<= 1` and target is currently active FIRM_ADMIN, return 422 (`"Cannot deactivate the last active firm admin."`); already-inactive precondition (3E-2-N1) returns 422 (`"Member is already inactive."`); `prisma.firmMember.update({ where: { id }, data: { isActive: false }, include: { user: { select: { name, email } } } })` — touches FirmMember.isActive ONLY per Decision 3E-2-M1; never touches PlatformUser.isActive; no task reassignment per Section 23.4; no deletion; ActivityLog `TEAM_MEMBER_DEACTIVATE` with `metadataJson: { reason: body.reason }` (deferred no-op until Step 4); returns 200 with the standard 7-field response shape; generic 500 on Prisma error (`"Unable to deactivate team member."`).
+  - `src/app/api/team/[id]/reactivate/route.ts` (NEW, ~140 lines, POST only) - `requireAuth(Action.TEAM_VIEW)` for auth-entry only; 400 if `!session.firmId`; `ReactivateMemberSchema` with `.strict()` and REQUIRED `reason` (trimmed, min 1, max `MAX_TEAM_NOTE_LENGTH`); load FirmMember by id; cross-firm check returns 404 + `console.warn("Cross-firm team reactivate attempt", {...})`; mutation auth `requirePermission(Action.TEAM_MANAGE)`; already-active precondition (3E-2-N1) returns 422 (`"Member is already active."`); no self-protection or last-admin protection (reactivate cannot lock anyone out); `prisma.firmMember.update({ where: { id }, data: { isActive: true }, include: { user: { select: { name, email } } } })` — touches FirmMember.isActive ONLY; never touches PlatformUser.isActive; no deletion; ActivityLog `TEAM_MEMBER_REACTIVATE` with `metadataJson: { reason: body.reason }` (deferred no-op until Step 4); returns 200 with the standard 7-field response shape; generic 500 on Prisma error (`"Unable to reactivate team member."`).
+  - `MASTER_PROJECT.md` - Section 14 Step 3 line updated: 3E-2B marked DRAFTED LOCALLY pending Pankaj's `npm run uat:check` build verification. Pending route groups now: `modules/` (3F; subject to parked reorder per D-2026-05-05-03). Section 0 metadata NOT bumped (no new MASTER section in this wave).
+  - `CURRENT_STATUS.md` - **(a)** Last-updated header refreshed to also cite C-2026-05-05-07 (3E-2B drafted). **(b)** Step 3 line in Current Stage block updated to mark 3E-2B drafted; pending narrowed to 3F. **(c)** Priority Tasks item 1 wording updated from "Plan locked-in pending implementation approval" to "drafted locally" with C-2026-05-05-07 / D-2026-05-05-06 references. **(d)** New Repo Health bullet for "Step 3E-2B drafted locally" with full files-shipped enumeration, decision references, and explicit "Latest verified runtime/code commit (line above) NOT advanced — stays at `f94027d`" anchor.
+  - `DECISION_LOG.md` - new entry `D-2026-05-05-06 - Section 14 Step 3E-2B implementation decisions` capturing all six decisions (F1-deactivate, G1-deactivate, H1, 3E-2-M1, 3E-2-N1, 3E-2B-P) with rationale, alternatives rejected, and impact statement.
+  - `CHANGE_LOG.md` - this entry.
+- **Reason**: 3E-2B closes the lifecycle / access-status surface for Team. The six decisions consume MASTER Section 23.4 (inactive user handling and locked TEAM_MEMBER_DEACTIVATE / TEAM_MEMBER_REACTIVATE action strings), Section 25.4 #1-#15 (route construction security), Section 25.5 (route-specific guardrails by analogy), and the 3E-2B post-ChatGPT review correction (reason REQUIRED on both endpoints). The corrected first-gate-then-mutation-auth pattern from D-2026-05-04-02 keeps both routes safe for non-FIRM_ADMIN callers; the deactivate / reactivate split mirrors the proven 3D-3 close / reopen / cancel split. G9 cost-discipline not engaged: no paid spend, no infra change.
+- **Auth state today**: every protected route still returns 401 by construction. `requireSession()` continues to return null in `api-helpers.ts:49`, so `requireAuth()` short-circuits before any DB read. Same locked-by-default contract as 3B / 3C / 3D / 3E-1 / 3E-2A. New deactivate and reactivate handlers will return 401 by construction once deployed; light up at Step 4.
+- **ActivityLog state today**: unchanged. `writeActivityLog()` remains the deferred no-op stub from 3A. 3E-2B routes call it at canonical Section 23.4 + 23.6 Team taxonomy strings (`TEAM_MEMBER_DEACTIVATE`, `TEAM_MEMBER_REACTIVATE`); audit trail lights up at Step 4 with no further route churn.
+- **Tenant isolation**: every read filters by `firmId: session.firmId`. PLATFORM_OWNER without a firm context cannot use these routes — they get a 400. Cross-firm `FirmMember.id` lookup returns 404 with `console.warn` for forensics. Defence in depth: route-layer `member.firmId !== session.firmId` check after `findUnique` before any update.
+- **Stage 0 conservative tenant defaults honoured (per AGENTS G11)**:
+  - PlatformUser.isActive untouched ✓ (Decision 3E-2-M1).
+  - No silent cross-firm action (cross-firm hits return 404).
+  - No Platform Owner all-firm escape (PLATFORM_OWNER without firmId returns 400).
+  - Cross-firm 404 emits `console.warn` per Section 25.4 #15.
+  - Admin-control actions (deactivate, reactivate) carry explicit rationale (REQUIRED reason field).
+  - Multi-firm membership remains deferred to Step 4 / Stage 1.
+  - No task reassignment (assignments survive per Section 23.4).
+  - No deletion / hard delete.
+- **Section 25 security constraints honoured**:
+  - 25.4 #1-#15: `requireAuth` first; tenant filter; cross-firm 404 + `console.warn`; 400 only for missing firm context; 422 for Zod validation; no PLATFORM_OWNER all-firm; Zod on every input (both POST bodies); no raw SQL; no secrets in responses; generic 500 messages; no stack traces; `try / catch` around every Prisma call; `console.warn` on suspicious cross-firm attempts.
+  - 25.5: Decision G length cap (`MAX_TEAM_NOTE_LENGTH = 4000`) consumed via `team-constants.ts`; Decision H `.strict()` on every body schema; Decision I metadataJson policy applied (TEAM_MEMBER_DEACTIVATE / TEAM_MEMBER_REACTIVATE carry `{ reason }` metadata directly — analogous to the 3D-3 lifecycle pattern but without TaskNote indirection because there is no TeamNote entity at Stage 0).
+- **Out of scope (intentional)**:
+  - 3F Modules.
+  - 3F reorder decision (remains parked per D-2026-05-05-03).
+  - Any schema or migration change.
+  - `permissions.ts` change (matrix already correct).
+  - `task-constants.ts` change.
+  - `src/app/api/team/route.ts` change (3E-1 GET + 3E-2A POST untouched).
+  - `src/app/api/team/[id]/route.ts` change (3E-1 GET + 3E-2A PATCH untouched).
+  - 3B / 3C / 3D route file change.
+  - `MASTER_PROJECT.md` Section 0 / Section 22 / Section 23 / Section 24 / Section 25 / Section 26 (no new section).
+  - `AGENTS.md` change.
+  - Any package install, dependency change, Netlify config change, or env var change.
+  - Invitation email pipeline (Step 4).
+  - Password reset endpoint (Step 4).
+  - Allowed-email-domain enforcement (Step 4 per Section 25.6).
+  - Audited PLATFORM_OWNER cross-firm impersonation flow (Step 4).
+  - Real `requireSession()` (Step 4).
+  - Real `writeActivityLog()` writes (Step 4).
+  - UI cutover from localStorage (Step 5).
+  - Platform Ownership Register population.
+  - Task reassignment.
+  - User deletion / hard delete.
+  - PlatformUser.isActive update.
+  - No commits / pushes by agent.
+- **Testing required**: Pankaj on Windows from `02_App\tos-app`: `git status --short` (verify expected file set is staged after `git add`), then `npm run uat:check` (lint + db:validate + build). Per AGENTS G3, the agent's bash sandbox cannot reliably run `npm` on this OneDrive mount. Code-level review via the file tool is clean: all three code files have well-formed TypeScript; correct imports (`zod`, `@/lib/prisma`, `@/lib/api-helpers`, `@/lib/permissions`, `@/lib/team-constants`); correct Prisma usage (`findUnique` with `include`; `update` with single-field data; `count` for last-admin guard); response shape matches the approved 7 fields; cross-firm 404 + `console.warn` mirrors the 3D + 3E-2A pattern; locked-by-default contract preserved. Expected build route table additions: `/api/team/[id]/deactivate` (POST) and `/api/team/[id]/reactivate` (POST). Existing routes unchanged (`/api/team` GET + POST; `/api/team/[id]` GET + PATCH; all tasks / clients / activity / firms / tenant routes).
+- **Status**: drafted locally pending Pankaj's `npm run uat:check` (lint + db:validate + build) and explicit commit/push approval.
