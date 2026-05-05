@@ -791,3 +791,39 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
   - No commits / pushes by agent.
 - **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave.
 - **Status**: completed pending Pankaj's commit and push approval.
+
+---
+
+## C-2026-05-05-04 - Pre-3E-2A governance touchup
+
+- **Date**: 2026-05-05
+- **Task**: Documentation-only governance touchup before Section 14 Step 3E-2A implementation begins. Three workstreams: (a) refresh stale operational truth in `CURRENT_STATUS.md` (the AI Advisory & Risk-Control Playbook audit found "What Is Partially Built", "What Is Missing", and "Next 5 to 10 Priority Tasks" sections still treating Tasks and Team route groups as not yet shipped); (b) record the parked status of the 3F reorder question via new `DECISION_LOG.md` entry D-2026-05-05-03 plus a new `CURRENT_STATUS.md` Repo Health bullet, so future Claude has an explicit anchor and does not silently re-litigate; (c) codify the practical Playbook execution rules in `AGENTS.md` as new G10 (Claude handoff + PowerShell hygiene) and G11 (pre-major-wave stress test + conservative Stage 0 tenant defaults), recorded via `DECISION_LOG.md` entry D-2026-05-05-04. `MASTER_PROJECT.md` NOT edited per operator decision (no new Section 26 Playbook in this wave; the rules live in `AGENTS.md` instead).
+- **Files changed**:
+  - `CURRENT_STATUS.md` - **(a)** "What Is Partially Built" first bullet rewritten to reflect tasks/ shipped (3D-1/2/3), team/ read shipped (3E-1), team/ mutations + modules/ pending. **(b)** "What Is Missing" first bullet replaced with two precise items: team/ mutation routes (3E-2A + 3E-2B) and modules/ (3F, subject to parked reorder). **(c)** "Next 5 to 10 Priority Tasks" rewritten with current order: 3E-2A → 3E-2B → 3F (subject to D-2026-05-05-03) → Step 4 → Step 5 → preserved deferred items (Firm.emailDomain, release-data-guard, Step 2 notification entities, page.tsx split). **(d)** New Repo Health bullet capturing 3F reorder parked status with revisit trigger. **(e)** New Repo Health bullet capturing this touchup wave (drafted locally pending commit). **(f)** Last-updated header refreshed to also cite this wave (C-2026-05-05-04).
+  - `DECISION_LOG.md` - new entry `D-2026-05-05-03 - 3F reorder question parked` capturing the considered option (defer 3F until after Step 4), the parked status, the locked position (default sequence remains), and the revisit trigger. New entry `D-2026-05-05-04 - AI Advisory prompt and PowerShell discipline codified in AGENTS` capturing the choice to codify Playbook rules in AGENTS rather than MASTER Section 26, the G10 + G11 scope summary, what is NOT included, alternatives rejected, and revisit trigger.
+  - `AGENTS.md` - new rule `G10 - Claude handoff and PowerShell hygiene` covering single-copyable-markdown-block discipline, full PowerShell `cd` path requirement on first executable line, git staging discipline (no `git add .` / `-A`, explicit paths, quoted bracketed paths), git lockfile safety (no auto-delete, inspect-and-warn pattern), Windows PowerShell as repo-state authority. New rule `G11 - Pre-major-wave stress test` covering when the stress test applies (commit-grade waves only), 14 self-check categories, split-risky-wave discipline (identity, auth, RBAC, tenanting, deactivation, reactivation, paywall, entitlement, schema, cross-firm, Platform Owner), conservative Stage 0 SaaS tenant defaults (no silent cross-firm linking, no Platform Owner all-firm escape, cross-firm 404, `console.warn` for suspicious attempts, admin-control rationale, multi-firm membership deferral), Pankaj/ChatGPT advisory layer treated as control input per Section 24.6.
+  - `CHANGE_LOG.md` - this entry.
+- **Reason**: The AI Advisory & Risk-Control Playbook audit (chat session 2026-05-05) found six YELLOW items: three stale `CURRENT_STATUS.md` sections, one missing parked-decision marker for the 3F reorder, and the un-codified Playbook execution rules. This wave closes all six in a single small touchup. Refreshing `CURRENT_STATUS.md` prevents future Claude from re-doing already-shipped work. Recording the parked 3F reorder via D-2026-05-05-03 + a Repo Health bullet gives an explicit anchor so future Claude does not silently re-litigate the reorder question. Codifying G10 + G11 in `AGENTS.md` ensures fresh-session future Claude inherits the practical execution rules without requiring Pankaj to re-instruct each session.
+- **Why `MASTER_PROJECT.md` not edited**: per operator decision, no new MASTER Section 26 Playbook in this wave. The codified rules are operational / execution-oriented and belong in `AGENTS.md`, not in MASTER's product-architecture sections. MASTER Section 14 Step 3 line, Sections 22-25, and Section 0 metadata are all current and correct against the runtime; no edits needed. Doc version stays at v2.2; no Section 0 bump required.
+- **Audit-finding closure mapping**:
+  - Y1 (CURRENT_STATUS line 62 staleness): closed by edit (a).
+  - Y2 (CURRENT_STATUS line 71 staleness): closed by edit (b).
+  - Y3 (CURRENT_STATUS Priority Tasks staleness): closed by edit (c).
+  - Y4 (3F reorder parked-status missing in CURRENT_STATUS): closed by edit (d) + D-2026-05-05-03.
+  - Y5 (3F reorder parked-status missing in DECISION_LOG): closed by D-2026-05-05-03.
+  - Y6 (Playbook un-codified): closed by AGENTS G10 + G11 + D-2026-05-05-04.
+- **Out of scope (intentional)**:
+  - No code changes.
+  - No schema changes.
+  - No route changes.
+  - No 3E-2A implementation. `src/app/api/team/route.ts` and `src/app/api/team/[id]/route.ts` are NOT touched in this wave.
+  - No 3E-2B implementation. `deactivate/` and `reactivate/` route directories not created.
+  - No 3F work.
+  - No Step 4 Auth work.
+  - No Step 5 Persistence work.
+  - No Platform Ownership Register population.
+  - No `MASTER_PROJECT.md` edit (operator decision; Section 0 doc version stays at v2.2).
+  - No `prisma/`, `package.json`, `package-lock.json`, `next.config.ts`, `netlify.toml`, env file, or `src/` change.
+  - No commits / pushes by agent.
+- **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave.
+- **Status**: completed pending Pankaj's commit and push approval. After this wave commits, the project is unblocked to proceed to 3E-2A implementation planning approval.

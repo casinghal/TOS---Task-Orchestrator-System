@@ -118,3 +118,71 @@ Recommending a paid option without all four rows is a check failure under MASTER
 
 Vendor prices, exact free-tier limits, and plan limits are NOT hardcoded in MASTER or AGENTS. The agent verifies current pricing and limits from official vendor sources at the time of recommendation and surfaces them in chat for the specific decision; the documented rule stays principle-based.
 
+### G10 - Claude handoff and PowerShell hygiene
+
+Effective 2026-05-05 (D-2026-05-05-04 adoption). Layers on top of G3 (local production build mandatory) and G6 (database safety).
+
+**Claude-facing handoff format**:
+
+- Execution instructions Claude receives via Pankaj must be fully contained inside one copyable markdown block. Stop conditions, validation steps, and PowerShell commands all live inside the block.
+- If a prompt arrives with execution scattered across multiple blocks plus surrounding prose, Claude flags the split and asks for a single consolidated block before acting.
+
+**PowerShell command blocks Claude issues**:
+
+- Every block begins with the full PracticeIQ app folder path on the first executable line:
+  ```
+  cd "C:\Users\panka\OneDrive - Avantage Partners Private Limited\.MY DATA - AVANTAGE\CLAUDE_Automation projects\Practice IQ - Task Orchestration System_Automation\02_App\tos-app"
+  ```
+- Pankaj opens fresh PowerShell sessions from his home folder; without the `cd`, commands land in the wrong directory.
+
+**Git staging discipline**:
+
+- Never use `git add .` or `git add -A`. Both can stage files outside the intended scope of the wave.
+- Use explicit `git add <path>` per intended file.
+- Quote bracketed paths: e.g., `git add "src/app/api/team/[id]/route.ts"` — PowerShell treats `[id]` as a glob pattern otherwise.
+- The staged set must match the wave's `CHANGE_LOG.md` entry exactly. Mismatch is a Tier 1 C3 fail.
+
+**Git lockfile safety**:
+
+- Never auto-delete `.git/index.lock` in a Claude-issued PowerShell block.
+- Correct pattern: detect via `Test-Path` → inspect via `Get-Item` (size + last-write-time) → check live git processes via `Get-Process -Name git -ErrorAction SilentlyContinue` → warn Pankaj if uncertain → stop the block. Manual deletion is Pankaj's call only, after he reviews the inspection output.
+
+**Repo-state authority**:
+
+- Windows PowerShell `git status` and `git log` are authoritative for this OneDrive-mounted repo.
+- The agent's bash sandbox may serve stale snapshots during active OneDrive sync (per G2). For commit-grade verification, the PowerShell-side report is the source of truth.
+
+### G11 - Pre-major-wave stress test
+
+Effective 2026-05-05 (D-2026-05-05-04 adoption). Layers on top of G7 (Section 23 consumption before entity routes) and G8 (Tier 1 consistency check).
+
+**When the stress test applies**:
+
+- Before any major planning, implementation, governance, auth, tenanting, schema, deployment, or commit-grade prompt.
+- Not before trivial chat exchanges, factual questions, or read-only audits.
+
+**Self-check categories**:
+
+Before issuing a code or commit-grade plan, Claude self-checks for: scope creep, sequencing violation, security risk, tenant isolation risk, RBAC/auth risk, PII exposure, audit/ActivityLog gap, documentation drift, git risk, cost exposure, Step 4/Step 5 migration complication, rollback complexity, CA/CPA workflow impact, and Claude misinterpretation risk.
+
+**Split risky waves**:
+
+- Risky areas include identity, auth, RBAC, tenanting, deactivation, reactivation, paywall, entitlement, schema, cross-firm behavior, and Platform Owner behavior.
+- Default to splitting these into smaller sub-waves. Recent precedent: 3D split into 3D-1 / 3D-2 / 3D-3; 3E split into 3E-1 / 3E-2A / 3E-2B. Confirm the split with Pankaj before the implementation turn.
+
+**Conservative Stage 0 tenant defaults**:
+
+The following SaaS-tenant rules apply unless explicitly overridden by a recorded DECISION_LOG entry:
+
+- No silent cross-firm identity linking.
+- No Platform Owner all-firm escape before an audited impersonation flow lands in Step 4.
+- No cross-firm existence leakage in API responses.
+- Cross-firm target lookups return 404 (not 403, not 422).
+- Suspicious cross-firm attempts emit `console.warn` server-side per MASTER Section 25.4 #15.
+- Admin-control actions (deactivate, reactivate, role-change, cancel, close) carry explicit rationale where practical (required text field).
+- Multi-firm membership waits until Step 4 / Stage 1 unless an explicit DECISION_LOG entry approves it for a specific wave.
+
+**Pankaj/ChatGPT advisory review**:
+
+The advisory layer (Pankaj + ChatGPT) may stress-test Claude's plan with a 20-step impact review and a 10-flaw critique. Claude treats the review as a control input (per MASTER Section 24.6), not approval. Only Pankaj's explicit chat go-ahead authorises execution.
+
