@@ -719,3 +719,49 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
   - No commits / pushes by agent.
 - **Testing required**: Pankaj on Windows from `02_App\tos-app`: `npm run lint` (must pass), `npm run db:validate` (must pass — no schema change so trivially passes), `npm run build` (must pass — verifies the one-line TS change compiles). Per AGENTS G3, the agent's bash sandbox cannot reliably run these on this OneDrive mount. Code-level review via the file tool is clean: the addition is a single `Action.TEAM_VIEW,` line inserted between two existing entries; no syntax change; no new imports needed (Action.TEAM_VIEW already exists in the Action constant block).
 - **Status**: drafted locally pending Pankaj's `npm run lint` + `npm run db:validate` + `npm run build` validation and explicit commit/push approval.
+
+---
+
+## C-2026-05-05-02 - Section 14 Step 3E-1: Team foundation + read routes
+
+- **Date**: 2026-05-05
+- **Task**: Section 14 Step 3E sub-wave 1 of 2. Team foundation + read routes only (Decision A1/B1/C1/D1/E1 locked at D-2026-05-05-02; E1 was the prerequisite matrix touchup that landed in repo HEAD `96c57db`). Two new GET endpoints (`/api/team` paginated list and `/api/team/[id]` single read) plus one new constants file (`src/lib/team-constants.ts`). No POST / PATCH / deactivate / reactivate (3E-2 territory). No `src/lib/permissions.ts` change in this wave (matrix already fixed). No schema change. No new ActivityLog actions (read-only routes do not emit audit events).
+- **Files changed**:
+  - `src/lib/team-constants.ts` (NEW, ~40 lines) - Canonical FirmRole tuple (`FIRM_ROLES`, satisfies `readonly FirmRoleCode[]` to enforce alignment with `permissions.ts` at compile time), team status filter set (`TEAM_STATUS_FILTERS = ["active", "inactive", "all"] as const` + `TeamStatusFilter` type), pagination caps (`DEFAULT_TEAM_PAGE_SIZE = 50`, `MAX_TEAM_PAGE_SIZE = 200` — mirror tasks for cross-route consistency), and `DEFAULT_TEAM_STATUS_FILTER = "active"` constant. Imports `FirmRoleCode` type from `@/lib/permissions` to anchor the tuple alignment. No runtime side effects; pure constants module.
+  - `src/app/api/team/route.ts` (NEW, ~135 lines) - GET only. `requireAuth(Action.TEAM_VIEW)` first (returns 401 today by construction); 400 if `!session.firmId`; query parsed via `QuerySchema` covering `page`, `pageSize` (capped at `MAX_TEAM_PAGE_SIZE`), `firmRole` (`z.enum(FIRM_ROLES)`), `status` (`z.enum(TEAM_STATUS_FILTERS)`), `q` (trimmed string). Where clause: tenant-scoped via `firmId: session.firmId` (non-negotiable), then optional `firmRole` filter, then `isActive` resolution per Decision B1 (`active` → `isActive: true`, `inactive` → `isActive: false`, `all` → no filter; default `active`), then optional `q` substring search via `user: { name: { contains: q.q, mode: "insensitive" } }` per Decision C1. Includes `user: { select: { name: true, email: true } }` to fetch the two PlatformUser fields needed for the response. Orders by `joinedAt desc`. Paginates via `Promise.all([findMany, count])`. `toResponse()` mapper produces the approved 7-field shape (`firmMemberId`, `userId`, `name`, `email`, `firmRole`, `isActive`, `joinedAt`); explicitly omits `passwordHash`, `platformRole`, `PlatformUser.isActive`, `lastLoginAt`, `firmId`. Generic 500 on Prisma error (`"Unable to list team."`). No POST handler.
+  - `src/app/api/team/[id]/route.ts` (NEW, ~95 lines) - GET only. `[id]` is `FirmMember.id` (NOT `PlatformUser.id`) — matches the URL key 3E-2 mutations will use. `requireAuth(Action.TEAM_VIEW)` first; 400 if `!session.firmId`. `findUnique({ where: { id }, include: { user: { select: { name: true, email: true } } } })`. Cross-firm check: if `!member || member.firmId !== session.firmId` returns 404 with message `"Team member not found."`; if the row exists but in another firm, emits `console.warn("Cross-firm team read attempt", {...})` per Section 25.4 #15 before returning 404. Same `toResponse()` shape as the list endpoint. Generic 500 on Prisma error (`"Unable to read team member."`). No PATCH / DELETE handlers.
+  - `MASTER_PROJECT.md` - Section 14 Step 3 line updated: 3E-1 marked DRAFTED LOCALLY pending Pankaj's `npm run uat:check` build verification and commit/push. Pending route groups updated to `team/` 3E-2 (mutations) and `modules/` (3F).
+  - `CURRENT_STATUS.md` - **(a)** Last-updated header refreshed to also cite this wave (C-2026-05-05-02). **(b)** Step 3 line in Current Stage block updated to mark 3E-1 drafted; pending updated to 3E-2 + 3F. **(c)** New Repo Health bullet for "Step 3E-1 drafted locally" with full files-shipped enumeration, decision references, and explicit "Latest verified runtime/code commit (line above) NOT advanced — stays at `8bcf4d1` until this implementation commit pushes and Netlify verifies".
+  - `DECISION_LOG.md` - new entry `D-2026-05-05-02 - Section 14 Step 3E-1 plan: Decisions A1 / B1 / C1 / D1 locked` capturing each decision with rationale and rejected alternatives. Decision E1 referenced as locked at D-2026-05-05-01 (the prerequisite permissions matrix touchup).
+  - `CHANGE_LOG.md` - this entry.
+- **Reason**: 3E-1 ships the read-only surface for the Team route group: a paginated, filterable list and a single-member read. Decision A1 keeps the response shape uniform across roles (firm-internal email is normal for CA / CPA practice; tenant scope already protects across firms; needed for assignment-dropdown UX). Decision B1 hides deactivated members by default with a single-parameter opt-in for the deactivated view. Decision C1 limits search scope to name (case-insensitive substring) to avoid creating an email-existence inference oracle. Decision D1 ships `team-constants.ts` so 3E-1 + 3E-2 share constants without divergence. Splitting 3E into 3E-1 (read) + 3E-2 (mutations) mirrors the proven 3D split pattern.
+- **Auth state today**: every route returns 401 by design until Step 4. `requireSession()` still returns null in `api-helpers.ts:49`, so `requireAuth(Action.TEAM_VIEW)` short-circuits before any DB read. Same locked-by-default contract as 3B / 3C / 3D / pre-3E touchup.
+- **ActivityLog state today**: unchanged. `writeActivityLog()` remains the deferred no-op stub from 3A. 3E-1 does not import or call it (read-only routes do not emit audit events).
+- **Tenant isolation**: every read filters by `firmId: session.firmId`. PLATFORM_OWNER without a firm context cannot use these routes — they get a 400. `/api/team/[id]` cross-firm hits return 404 with a `console.warn` for forensics per Section 25.4 #15.
+- **ARTICLE_STAFF behaviour** (per Decision A1):
+  - GET `/api/team` (list): ALLOWED. Returns full firm-wide list including `email` field. No scope narrowing on response shape.
+  - GET `/api/team/[id]` (read): ALLOWED for any FirmMember in the caller's firm. Same response shape as the list item. Cross-firm hits return 404 like for any other role.
+- **Section 25 security constraints honoured**:
+  - 25.4 #1-#15: `requireAuth` first; tenant filter; cross-firm 404 + `console.warn`; 400 only for missing firm context; 422 for Zod validation; no PLATFORM_OWNER all-firm; Zod on every input (query schema for list); no raw SQL; no secrets in responses or logs (passwordHash strictly excluded from response); generic 500 messages; no stack traces; `try / catch` around every Prisma call.
+  - 25.5: not applicable to read-only routes (Decision G length caps not triggered; Decision H `.strict()` not applicable to query schemas per existing 3D pattern; Decision I metadata policy not triggered — no ActivityLog calls).
+- **Out of scope (intentional)**:
+  - POST `/api/team` (3E-2).
+  - PATCH `/api/team/[id]` (3E-2).
+  - POST `/api/team/[id]/deactivate` (3E-2).
+  - POST `/api/team/[id]/reactivate` (3E-2).
+  - User creation, placeholder passwordHash handling, last-active-FIRM_ADMIN protection, self-deactivation protection (all 3E-2).
+  - Invitation email, password reset (Step 4).
+  - Allowed-email-domain enforcement (Step 4 per Section 25.6).
+  - Audited PLATFORM_OWNER cross-firm impersonation (Step 4).
+  - Real `requireSession()` (Step 4).
+  - Real `writeActivityLog()` writes (Step 4).
+  - 3F Modules implementation (3F; reorder question still parked).
+  - Any schema or migration change.
+  - `permissions.ts` change (matrix already fixed in `96c57db` per D-2026-05-05-01).
+  - `task-constants.ts` change.
+  - Any 3B / 3C / 3D route file change.
+  - `AGENTS.md` change.
+  - Any package install, dependency change, Netlify config change, or env var change.
+  - No commits / pushes by agent.
+- **Testing required**: Pankaj on Windows from `02_App\tos-app`: `git status --short` (verify expected file set is staged after `git add`), then `npm run uat:check` (lint + db:validate + build). Per AGENTS G3, the agent's bash sandbox cannot reliably run `npm` on this OneDrive mount. Code-level review via the file tool is clean: all three files have well-formed TypeScript; correct imports (`zod`, `prisma`, `api-helpers`, `permissions`, `team-constants`); correct Prisma usage (`findMany` / `findUnique` / `count` with proper `include`); response shape matches the approved 7 fields; cross-firm 404 + `console.warn` mirrors the 3D pattern; locked-by-default contract preserved. Expected build route table additions: `/api/team` (GET) and `/api/team/[id]` (GET).
+- **Status**: drafted locally pending Pankaj's `npm run uat:check` (lint + db:validate + build) and explicit commit/push approval.
