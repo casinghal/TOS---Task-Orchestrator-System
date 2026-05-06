@@ -27,7 +27,7 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { databaseUnavailable, err, requireAuth } from "@/lib/api-helpers";
+import { databaseUnavailable, err, requireAuth, writeActivityLog } from "@/lib/api-helpers";
 import { Action } from "@/lib/permissions";
 import { normalizeDomain, validateFirmDomain } from "@/lib/tenant-guard";
 
@@ -91,6 +91,23 @@ export async function PATCH(request: Request, context: { params: Promise<{ firmI
         status: status.toUpperCase(),
         emailDomain: emailDomain || null,
       },
+    });
+
+    // Audit emit (Step 4E follow-on; fail-open via writeActivityLog per
+    // Step 4E). firmId = session.firmId (server-resolved; route already
+    // enforced session.firmId === firmId above). metadataJson lists the
+    // field NAMES this PATCH writes — no values, no raw body, no full
+    // before/after snapshot. The four fields below match the prisma.firm.update
+    // data block exactly; if that block changes, this list must too.
+    await writeActivityLog({
+      firmId: session.firmId,
+      actorId: session.userId,
+      entityType: "FIRM",
+      entityId: updated.id,
+      action: "FIRM_UPDATE",
+      metadataJson: JSON.stringify({
+        fields: ["name", "city", "status", "emailDomain"],
+      }),
     });
 
     return NextResponse.json({

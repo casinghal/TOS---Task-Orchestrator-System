@@ -21,7 +21,7 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { databaseUnavailable, err, requireSession } from "@/lib/api-helpers";
+import { databaseUnavailable, err, requireSession, writeActivityLog } from "@/lib/api-helpers";
 import { PlatformRole } from "@/lib/permissions";
 import { normalizeDomain, validateFirmDomain } from "@/lib/tenant-guard";
 
@@ -70,6 +70,19 @@ export async function POST(request: Request) {
         status: status.toUpperCase(),
         emailDomain: emailDomain || null,
       },
+    });
+
+    // Audit emit (Step 4E follow-on; fail-open via writeActivityLog per
+    // Step 4E). The new Firm row is the audit scope: firmId = firm.id,
+    // entityId = firm.id. metadataJson intentionally omitted — full details
+    // are recoverable via Firm record join from entityId. No raw request
+    // body, no full firm snapshot, no headers/tokens/secrets logged.
+    await writeActivityLog({
+      firmId: firm.id,
+      actorId: session.userId,
+      entityType: "FIRM",
+      entityId: firm.id,
+      action: "FIRM_CREATE",
     });
 
     return NextResponse.json({
