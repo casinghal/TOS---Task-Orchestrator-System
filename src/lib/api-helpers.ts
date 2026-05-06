@@ -193,16 +193,30 @@ export async function parseJson<T>(
   return { ok: true, data: result.data };
 }
 
-// --- Deferred ActivityLog write helper ------------------------------------
+// --- ActivityLog write helper ---------------------------------------------
 //
-// DEFERRED until Step 4 wires real session identity (D-2026-04-30-15
-// Decision 4, recorded 2026-04-30). This helper exists so route code can
-// call writeActivityLog(...) without churn when Step 4 lands.
+// Step 4E (`1b88f80`+ runtime; this commit): real Prisma persistence to
+// `ActivityLog`. Built on top of real `requireSession()` (Step 4B-2) which
+// supplies non-null `firmId` and `actorId` at every existing call site.
 //
-// IMPORTANT: this is a NO-OP today. It does NOT write rows to the database.
-// Do NOT treat the existence of this helper as evidence of an active audit
-// trail. Per Decision 4, we do NOT write ActivityLog rows with null actorId
-// because an audit trail without a real actor is misleading.
+// Behaviour contract:
+//   - Persists `firmId`, `actorId`, `entityType`, `entityId`, `action`,
+//     `metadataJson` exactly as the caller supplies them. Optional fields
+//     (`entityId`, `metadataJson`) coerce to `null` when omitted.
+//   - FAIL OPEN: any DB error during the audit write is caught internally
+//     and logged via `console.error`. The function never throws. Audit-log
+//     write failures must NOT block the main business mutation, which has
+//     already committed by the time this helper runs at the call sites.
+//   - If `DATABASE_URL` is missing, returns immediately without throwing
+//     (route handlers already returned 503 in that case).
+//   - Does NOT log request bodies, headers, IPs, user agents, tokens,
+//     cookies, passwords, secrets, environment variables, or full
+//     before/after object snapshots. The error-path `console.error` deliberately
+//     omits raw `metadataJson` to avoid surfacing free-text fields (e.g.
+//     deactivate/reactivate `reason`) into Netlify logs on failure.
+//
+// References: MASTER_PROJECT.md Section 14 Step 4E; CHANGE_LOG C-2026-05-06-XX
+// (this commit); D-2026-04-30-15 Decision 4 (now satisfied).
 
 export type ActivityLogArgs = {
   firmId: string | null;
@@ -213,10 +227,39 @@ export type ActivityLogArgs = {
   metadataJson?: string;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function writeActivityLog(_args: ActivityLogArgs): Promise<void> {
-  // TODO Step 4: implement Prisma write to ActivityLog with real actorId
-  // sourced from a verified Supabase Auth session. Until then this remains
-  // a deliberate no-op per D-2026-04-30-15 Decision 4.
-  return;
+export async function writeActivityLog(args: ActivityLogArgs): Promise<void> {
+  // Skip if database not configured. Route handlers already returned 503;
+  // throwing here would propagate into the route's main try/catch and
+  // mask the original 503 with a 500.
+  if (!process.env.DATABASE_URL) return;
+
+  try {
+    await prisma.activityLog.create({
+      data: {
+        firmId: args.firmId,
+        actorId: args.actorId,
+        entityType: args.entityType,
+        entityId: args.entityId ?? null,
+        action: args.action,
+        metadataJson: args.metadataJson ?? null,
+      },
+    });
+  } catch (e) {
+    // FAIL OPEN. The mutation has already committed; rethrowing would mask
+    // the success and trigger the route's 500 handler, leaving the user
+    // looking at an error for an action that actually worked. Log a
+    // structured forensic record for operators to monitor and continue.
+    //
+    // We deliberately do NOT include `metadataJson` in this log line to
+    // avoid surfacing free-text fields (e.g. team deactivate/reactivate
+    // `reason`) into Netlify logs.
+    console.error("writeActivityLog failed", {
+      action: args.action,
+      entityType: args.entityType,
+      entityId: args.entityId,
+      firmId: args.firmId,
+      actorId: args.actorId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
 }
