@@ -33,6 +33,7 @@ import {
   requireAuth,
   writeActivityLog,
 } from "@/lib/api-helpers";
+import { resolveCrossFirmContext } from "@/lib/cross-firm";
 import { Action, FirmRole, requirePermission } from "@/lib/permissions";
 import { MAX_TASK_NOTE_LENGTH } from "@/lib/task-constants";
 
@@ -64,11 +65,21 @@ export async function POST(
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
-
   const { id } = await context.params;
+
+  // Step 4F-2: cross-firm impersonation.
+  const url = new URL(request.url);
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "Task",
+    entityId: id,
+    routeLabel: "POST /api/tasks/[id]/cancel",
+  });
+  if (!ctx.ok) return ctx.response;
+  const { effectiveFirmId, isImpersonation } = ctx;
 
   const parsed = await parseJson(request, CancelTaskSchema);
   if (!parsed.ok) return parsed.response;
@@ -80,26 +91,33 @@ export async function POST(
       include: { assignees: { select: { userId: true } } },
     });
 
-    if (!task || task.firmId !== session.firmId) {
-      if (task && task.firmId !== session.firmId) {
-        console.warn("Cross-firm task cancel attempt", {
-          sessionFirmId: session.firmId,
-          attemptedTaskId: id,
-          route: "POST /api/tasks/[id]/cancel",
-        });
-      }
+    if (!task) {
+      return err("Task not found.", 404);
+    }
+    if (task.firmId !== effectiveFirmId) {
+      console.warn("Cross-firm task cancel attempt", {
+        effectiveFirmId,
+        attemptedTaskId: id,
+        actorId: session.userId,
+        route: "POST /api/tasks/[id]/cancel",
+      });
       return err("Task not found.", 404);
     }
 
     // ARTICLE_STAFF visibility per Decision M1. Cancel context is
     // isCreator only (Section 23.3: FIRM_ADMIN, PARTNER, or creator).
     // isReviewer is intentionally NOT computed here.
+    // Step 4F-2 D2: PLATFORM_OWNER cross-firm impersonation bypasses the
+    // home-firm ARTICLE_STAFF visibility self-scope.
     const isCreator = task.createdById === session.userId;
     const isAssignee = task.assignees.some(
       (a) => a.userId === session.userId,
     );
 
-    if (session.firmRole === FirmRole.ARTICLE_STAFF) {
+    if (
+      !isImpersonation &&
+      session.firmRole === FirmRole.ARTICLE_STAFF
+    ) {
       if (!isCreator && !isAssignee) {
         return err("Task not found.", 404);
       }
@@ -149,11 +167,12 @@ export async function POST(
       return { task: t, noteId: note.id };
     });
 
-    // ActivityLog (deferred no-op until Step 4). Per Decision I, the
-    // free-text reason lives on the firm-scoped TaskNote; metadata
-    // carries `{ noteId }` reference only.
+    // Routine post-mutation audit. Per Decision I, the free-text reason
+    // lives on the firm-scoped TaskNote; metadata carries `{ noteId }`
+    // reference only. firmId reflects effective tenant scope; actorId
+    // remains the impersonator's userId.
     await writeActivityLog({
-      firmId: session.firmId,
+      firmId: effectiveFirmId,
       actorId: session.userId,
       entityType: "Task",
       entityId: id,

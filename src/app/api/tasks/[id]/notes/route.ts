@@ -30,6 +30,7 @@ import {
   requireAuth,
   writeActivityLog,
 } from "@/lib/api-helpers";
+import { resolveCrossFirmContext } from "@/lib/cross-firm";
 import { Action, FirmRole } from "@/lib/permissions";
 import { MAX_TASK_NOTE_LENGTH } from "@/lib/task-constants";
 
@@ -60,11 +61,21 @@ export async function POST(
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
-
   const { id } = await context.params;
+
+  // Step 4F-2: cross-firm impersonation.
+  const url = new URL(request.url);
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "Task",
+    entityId: id,
+    routeLabel: "POST /api/tasks/[id]/notes",
+  });
+  if (!ctx.ok) return ctx.response;
+  const { effectiveFirmId, isImpersonation } = ctx;
 
   const parsed = await parseJson(request, AddNoteSchema);
   if (!parsed.ok) return parsed.response;
@@ -75,21 +86,26 @@ export async function POST(
       include: { assignees: { select: { userId: true } } },
     });
 
-    if (!task || task.firmId !== session.firmId) {
-      if (task && task.firmId !== session.firmId) {
-        console.warn("Cross-firm task note-add attempt", {
-          sessionFirmId: session.firmId,
-          attemptedTaskId: id,
-          route: "POST /api/tasks/[id]/notes",
-        });
-      }
+    if (!task) {
+      return err("Task not found.", 404);
+    }
+    if (task.firmId !== effectiveFirmId) {
+      console.warn("Cross-firm task note-add attempt", {
+        effectiveFirmId,
+        attemptedTaskId: id,
+        actorId: session.userId,
+        route: "POST /api/tasks/[id]/notes",
+      });
       return err("Task not found.", 404);
     }
 
-    // ARTICLE_STAFF visibility per Decision C1: only own (creator) or
-    // assigned tasks. Out-of-scope returns 404 (not 403) to avoid leaking
-    // that the id exists within the firm.
-    if (session.firmRole === FirmRole.ARTICLE_STAFF) {
+    // ARTICLE_STAFF visibility per Decision C1.
+    // Step 4F-2 D2: PLATFORM_OWNER cross-firm impersonation bypasses the
+    // home-firm ARTICLE_STAFF visibility self-scope.
+    if (
+      !isImpersonation &&
+      session.firmRole === FirmRole.ARTICLE_STAFF
+    ) {
       const isCreator = task.createdById === session.userId;
       const isAssignee = task.assignees.some(
         (a) => a.userId === session.userId,
@@ -111,10 +127,10 @@ export async function POST(
       },
     });
 
-    // Deferred no-op per D-2026-04-30-15 Decision 4. Call site preserved
-    // so Step 4 can light up the audit trail without route churn.
+    // Routine post-mutation audit. firmId reflects effective tenant scope;
+    // actorId remains the impersonator's userId.
     await writeActivityLog({
-      firmId: session.firmId,
+      firmId: effectiveFirmId,
       actorId: session.userId,
       entityType: "Task",
       entityId: id,

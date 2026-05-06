@@ -19,6 +19,7 @@ import {
   requireAuth,
   writeActivityLog,
 } from "@/lib/api-helpers";
+import { resolveCrossFirmContext } from "@/lib/cross-firm";
 import { Action } from "@/lib/permissions";
 
 // --- Validation -----------------------------------------------------------
@@ -90,22 +91,33 @@ export async function GET(
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
-
   const { id } = await context.params;
+
+  // Step 4F-2: cross-firm impersonation. Helper handles missing-firm 400,
+  // cross-firm 404, fail-closed audit, 503 on audit failure.
+  const url = new URL(request.url);
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "Client",
+    entityId: id,
+    routeLabel: "GET /api/clients/[id]",
+  });
+  if (!ctx.ok) return ctx.response;
+  const { effectiveFirmId } = ctx;
 
   try {
     const client = await prisma.client.findUnique({ where: { id } });
     if (!client) {
       return err("Client not found.", 404);
     }
-    if (client.firmId !== session.firmId) {
-      // Cross-firm hit: treat as 404 to avoid leaking that the id exists.
-      // Section 25.4 #15 forensics: log the prevented cross-firm access.
+    if (client.firmId !== effectiveFirmId) {
+      // Cross-firm-or-cross-entity hit: treat as 404 to avoid leaking that
+      // the id exists. Section 25.4 #15 forensics: log the prevented access.
       console.warn(
-        `Cross-firm hit prevented: session.firmId=${session.firmId} target.firmId=${client.firmId} route=GET /api/clients/[id]`,
+        `Cross-firm hit prevented: effectiveFirmId=${effectiveFirmId} target.firmId=${client.firmId} route=GET /api/clients/[id]`,
       );
       return err("Client not found.", 404);
     }
@@ -127,11 +139,21 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
-
   const { id } = await context.params;
+
+  // Step 4F-2: cross-firm impersonation.
+  const url = new URL(request.url);
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "Client",
+    entityId: id,
+    routeLabel: "PATCH /api/clients/[id]",
+  });
+  if (!ctx.ok) return ctx.response;
+  const { effectiveFirmId } = ctx;
 
   const parsed = await parseJson(request, UpdateClientSchema);
   if (!parsed.ok) return parsed.response;
@@ -142,11 +164,10 @@ export async function PATCH(
     if (!existing) {
       return err("Client not found.", 404);
     }
-    if (existing.firmId !== session.firmId) {
-      // Cross-firm hit: treat as 404 to avoid leaking that the id exists.
-      // Section 25.4 #15 forensics: log the prevented cross-firm access.
+    if (existing.firmId !== effectiveFirmId) {
+      // Cross-firm-or-cross-entity hit: 404 to avoid leak. Section 25.4 #15.
       console.warn(
-        `Cross-firm hit prevented: session.firmId=${session.firmId} target.firmId=${existing.firmId} route=PATCH /api/clients/[id]`,
+        `Cross-firm hit prevented: effectiveFirmId=${effectiveFirmId} target.firmId=${existing.firmId} route=PATCH /api/clients/[id]`,
       );
       return err("Client not found.", 404);
     }
@@ -165,12 +186,14 @@ export async function PATCH(
       },
     });
 
-    // Deferred no-op per D-2026-04-30-15 Decision 4. Call preserved so
-    // Step 4 can light up the audit trail without route churn.
+    // Routine post-mutation audit (Step 4E lit up real Prisma writes).
+    // firmId reflects the effective tenant scope (= target firm under
+    // impersonation, = own firm otherwise). actorId remains the
+    // impersonator's userId in either case.
     const isSoftDelete =
       payload.status === "INACTIVE" && existing.status !== "INACTIVE";
     await writeActivityLog({
-      firmId: session.firmId,
+      firmId: effectiveFirmId,
       actorId: session.userId,
       entityType: "Client",
       entityId: updated.id,

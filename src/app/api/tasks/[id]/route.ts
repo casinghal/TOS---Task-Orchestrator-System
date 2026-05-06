@@ -46,6 +46,7 @@ import {
   requireAuth,
   writeActivityLog,
 } from "@/lib/api-helpers";
+import { resolveCrossFirmContext } from "@/lib/cross-firm";
 import { Action, FirmRole, requirePermission } from "@/lib/permissions";
 import {
   isAllowedTransition,
@@ -124,11 +125,21 @@ export async function GET(
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
-
   const { id } = await context.params;
+
+  // Step 4F-2: cross-firm impersonation.
+  const url = new URL(request.url);
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "Task",
+    entityId: id,
+    routeLabel: "GET /api/tasks/[id]",
+  });
+  if (!ctx.ok) return ctx.response;
+  const { effectiveFirmId, isImpersonation } = ctx;
 
   try {
     const task = await prisma.task.findUnique({
@@ -136,21 +147,30 @@ export async function GET(
       include: { assignees: { select: { userId: true } } },
     });
 
-    if (!task || task.firmId !== session.firmId) {
-      if (task && task.firmId !== session.firmId) {
-        console.warn("Cross-firm task read attempt", {
-          sessionFirmId: session.firmId,
-          attemptedTaskId: id,
-          route: "GET /api/tasks/[id]",
-        });
-      }
+    if (!task) {
+      return err("Task not found.", 404);
+    }
+    if (task.firmId !== effectiveFirmId) {
+      console.warn("Cross-firm task read attempt", {
+        effectiveFirmId,
+        attemptedTaskId: id,
+        actorId: session.userId,
+        route: "GET /api/tasks/[id]",
+      });
       return err("Task not found.", 404);
     }
 
     // ARTICLE_STAFF visibility per Decision C1: only own (creator) or
     // assigned tasks. Out-of-scope returns 404 (not 403) to avoid leaking
     // that the id exists within the firm.
-    if (session.firmRole === FirmRole.ARTICLE_STAFF) {
+    //
+    // Step 4F-2 D2: PLATFORM_OWNER cross-firm impersonation bypasses the
+    // home-firm ARTICLE_STAFF visibility self-scope. The home-firm role
+    // does not constrain the impersonator's view of the target firm.
+    if (
+      !isImpersonation &&
+      session.firmRole === FirmRole.ARTICLE_STAFF
+    ) {
       const isCreator = task.createdById === session.userId;
       const isAssignee = task.assignees.some(
         (a) => a.userId === session.userId,
@@ -184,11 +204,21 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
-
   const { id } = await context.params;
+
+  // Step 4F-2: cross-firm impersonation.
+  const url = new URL(request.url);
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "Task",
+    entityId: id,
+    routeLabel: "PATCH /api/tasks/[id]",
+  });
+  if (!ctx.ok) return ctx.response;
+  const { effectiveFirmId, isImpersonation } = ctx;
 
   const parsed = await parseJson(request, UpdateTaskSchema);
   if (!parsed.ok) return parsed.response;
@@ -200,14 +230,16 @@ export async function PATCH(
       include: { assignees: { select: { userId: true } } },
     });
 
-    if (!task || task.firmId !== session.firmId) {
-      if (task && task.firmId !== session.firmId) {
-        console.warn("Cross-firm task PATCH attempt", {
-          sessionFirmId: session.firmId,
-          attemptedTaskId: id,
-          route: "PATCH /api/tasks/[id]",
-        });
-      }
+    if (!task) {
+      return err("Task not found.", 404);
+    }
+    if (task.firmId !== effectiveFirmId) {
+      console.warn("Cross-firm task PATCH attempt", {
+        effectiveFirmId,
+        attemptedTaskId: id,
+        actorId: session.userId,
+        route: "PATCH /api/tasks/[id]",
+      });
       return err("Task not found.", 404);
     }
 
@@ -220,7 +252,12 @@ export async function PATCH(
     // Decision K1: isOwnTask = isCreator OR isAssignee.
     const isOwnTask = isCreator || isAssignee;
 
-    if (session.firmRole === FirmRole.ARTICLE_STAFF) {
+    // Step 4F-2 D2: PLATFORM_OWNER cross-firm impersonation bypasses the
+    // home-firm ARTICLE_STAFF visibility self-scope.
+    if (
+      !isImpersonation &&
+      session.firmRole === FirmRole.ARTICLE_STAFF
+    ) {
       if (!isCreator && !isAssignee) {
         return err("Task not found.", 404);
       }
@@ -333,21 +370,23 @@ export async function PATCH(
       }
     }
 
-    // Reviewer change cross-firm validation.
+    // Reviewer change cross-firm validation. Under impersonation the new
+    // reviewer must be a member of the TARGET firm (= effectiveFirmId),
+    // not the impersonator's home firm.
     const reviewerChanged =
       body.reviewerId !== undefined && body.reviewerId !== task.reviewerId;
     if (reviewerChanged) {
       const reviewerMembership = await prisma.firmMember.findUnique({
         where: {
           firmId_userId: {
-            firmId: session.firmId,
+            firmId: effectiveFirmId,
             userId: body.reviewerId as string,
           },
         },
       });
       if (!reviewerMembership || !reviewerMembership.isActive) {
         console.warn("Cross-firm or inactive reviewerId attempt", {
-          sessionFirmId: session.firmId,
+          effectiveFirmId,
           attemptedReviewerId: body.reviewerId,
           route: "PATCH /api/tasks/[id]",
         });
@@ -407,7 +446,7 @@ export async function PATCH(
     // events per PATCH are allowed (Section 23.6 / Section 25).
     if (statusChanged) {
       await writeActivityLog({
-        firmId: session.firmId,
+        firmId: effectiveFirmId,
         actorId: session.userId,
         entityType: "Task",
         entityId: id,
@@ -420,7 +459,7 @@ export async function PATCH(
     }
     if (reviewerChanged) {
       await writeActivityLog({
-        firmId: session.firmId,
+        firmId: effectiveFirmId,
         actorId: session.userId,
         entityType: "Task",
         entityId: id,
@@ -443,7 +482,7 @@ export async function PATCH(
       if (body.dueDate !== undefined) fields.push("dueDate");
       if (body.priority !== undefined) fields.push("priority");
       await writeActivityLog({
-        firmId: session.firmId,
+        firmId: effectiveFirmId,
         actorId: session.userId,
         entityType: "Task",
         entityId: id,

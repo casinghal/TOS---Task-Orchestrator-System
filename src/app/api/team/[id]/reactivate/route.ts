@@ -44,6 +44,7 @@ import {
   requireAuth,
   writeActivityLog,
 } from "@/lib/api-helpers";
+import { resolveCrossFirmContext } from "@/lib/cross-firm";
 import { Action, requirePermission } from "@/lib/permissions";
 import { MAX_TEAM_NOTE_LENGTH } from "@/lib/team-constants";
 
@@ -101,12 +102,21 @@ export async function POST(
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
-  const firmId = session.firmId;
-
   const { id } = await context.params;
+
+  // Step 4F-2: cross-firm impersonation.
+  const url = new URL(request.url);
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "FirmMember",
+    entityId: id,
+    routeLabel: "POST /api/team/[id]/reactivate",
+  });
+  if (!ctx.ok) return ctx.response;
+  const firmId = ctx.effectiveFirmId;
 
   const parsed = await parseJson(request, ReactivateMemberSchema);
   if (!parsed.ok) return parsed.response;
@@ -118,15 +128,16 @@ export async function POST(
       include: { user: { select: { name: true, email: true } } },
     });
 
-    if (!member || member.firmId !== firmId) {
-      if (member && member.firmId !== firmId) {
-        console.warn("Cross-firm team reactivate attempt", {
-          sessionFirmId: firmId,
-          attemptedFirmMemberId: id,
-          actorId: session.userId,
-          route: "POST /api/team/[id]/reactivate",
-        });
-      }
+    if (!member) {
+      return err("Team member not found.", 404);
+    }
+    if (member.firmId !== firmId) {
+      console.warn("Cross-firm team reactivate attempt", {
+        effectiveFirmId: firmId,
+        attemptedFirmMemberId: id,
+        actorId: session.userId,
+        route: "POST /api/team/[id]/reactivate",
+      });
       return err("Team member not found.", 404);
     }
 

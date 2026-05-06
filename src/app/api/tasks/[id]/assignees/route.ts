@@ -29,6 +29,7 @@ import {
   requireAuth,
   writeActivityLog,
 } from "@/lib/api-helpers";
+import { resolveCrossFirmContext } from "@/lib/cross-firm";
 import { Action, FirmRole, requirePermission } from "@/lib/permissions";
 import { MAX_ASSIGNEES_PER_TASK } from "@/lib/task-constants";
 
@@ -61,17 +62,32 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
+  const { id } = await context.params;
+
+  // Step 4F-2: cross-firm impersonation.
+  const url = new URL(request.url);
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "Task",
+    entityId: id,
+    routeLabel: "PATCH /api/tasks/[id]/assignees",
+  });
+  if (!ctx.ok) return ctx.response;
+  const { effectiveFirmId, isImpersonation } = ctx;
 
   // ARTICLE_STAFF cannot reassign per Section 23.5. Reject early at the
   // route layer regardless of context (creator, reviewer, or otherwise).
-  if (session.firmRole === FirmRole.ARTICLE_STAFF) {
+  // Step 4F-2 D2: PLATFORM_OWNER cross-firm impersonation bypasses the
+  // home-firm ARTICLE_STAFF route-layer 403.
+  if (
+    !isImpersonation &&
+    session.firmRole === FirmRole.ARTICLE_STAFF
+  ) {
     return err("You do not have permission for this action.", 403);
   }
-
-  const { id } = await context.params;
 
   const parsed = await parseJson(request, UpdateAssigneesSchema);
   if (!parsed.ok) return parsed.response;
@@ -82,14 +98,16 @@ export async function PATCH(
       include: { assignees: { select: { userId: true } } },
     });
 
-    if (!task || task.firmId !== session.firmId) {
-      if (task && task.firmId !== session.firmId) {
-        console.warn("Cross-firm assignees PATCH attempt", {
-          sessionFirmId: session.firmId,
-          attemptedTaskId: id,
-          route: "PATCH /api/tasks/[id]/assignees",
-        });
-      }
+    if (!task) {
+      return err("Task not found.", 404);
+    }
+    if (task.firmId !== effectiveFirmId) {
+      console.warn("Cross-firm assignees PATCH attempt", {
+        effectiveFirmId,
+        attemptedTaskId: id,
+        actorId: session.userId,
+        route: "PATCH /api/tasks/[id]/assignees",
+      });
       return err("Task not found.", 404);
     }
 
@@ -107,11 +125,12 @@ export async function PATCH(
     const addList = parsed.data.add ?? [];
     const removeList = parsed.data.remove ?? [];
 
-    // Validate every add[i] as active FirmMember of caller's firm.
+    // Validate every add[i] as active FirmMember of effective firm. Under
+    // impersonation the new assignees must belong to the TARGET firm.
     if (addList.length > 0) {
       const addMemberships = await prisma.firmMember.findMany({
         where: {
-          firmId: session.firmId,
+          firmId: effectiveFirmId,
           userId: { in: addList },
           isActive: true,
         },
@@ -121,7 +140,7 @@ export async function PATCH(
       const invalidAdds = addList.filter((u) => !validAddIds.has(u));
       if (invalidAdds.length > 0) {
         console.warn("Cross-firm or inactive assigneeId add attempt", {
-          sessionFirmId: session.firmId,
+          effectiveFirmId,
           attemptedAssigneeIds: invalidAdds,
           route: "PATCH /api/tasks/[id]/assignees",
         });
@@ -184,7 +203,7 @@ export async function PATCH(
     // (Section 23.6).
     if (netAdded.length > 0) {
       await writeActivityLog({
-        firmId: session.firmId,
+        firmId: effectiveFirmId,
         actorId: session.userId,
         entityType: "Task",
         entityId: id,
@@ -194,7 +213,7 @@ export async function PATCH(
     }
     if (netRemoved.length > 0) {
       await writeActivityLog({
-        firmId: session.firmId,
+        firmId: effectiveFirmId,
         actorId: session.userId,
         entityType: "Task",
         entityId: id,

@@ -49,6 +49,7 @@ import {
   requireAuth,
   writeActivityLog,
 } from "@/lib/api-helpers";
+import { resolveCrossFirmContext } from "@/lib/cross-firm";
 import { Action, requirePermission } from "@/lib/permissions";
 import {
   FIRM_ROLES,
@@ -113,11 +114,21 @@ export async function GET(
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
-
   const { id } = await context.params;
+
+  // Step 4F-2: cross-firm impersonation.
+  const url = new URL(request.url);
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "FirmMember",
+    entityId: id,
+    routeLabel: "GET /api/team/[id]",
+  });
+  if (!ctx.ok) return ctx.response;
+  const { effectiveFirmId } = ctx;
 
   try {
     const member = await prisma.firmMember.findUnique({
@@ -125,14 +136,16 @@ export async function GET(
       include: { user: { select: { name: true, email: true } } },
     });
 
-    if (!member || member.firmId !== session.firmId) {
-      if (member && member.firmId !== session.firmId) {
-        console.warn("Cross-firm team read attempt", {
-          sessionFirmId: session.firmId,
-          attemptedMemberId: id,
-          route: "GET /api/team/[id]",
-        });
-      }
+    if (!member) {
+      return err("Team member not found.", 404);
+    }
+    if (member.firmId !== effectiveFirmId) {
+      console.warn("Cross-firm team read attempt", {
+        effectiveFirmId,
+        attemptedMemberId: id,
+        actorId: session.userId,
+        route: "GET /api/team/[id]",
+      });
       return err("Team member not found.", 404);
     }
 
@@ -160,12 +173,23 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
-  const firmId = session.firmId;
-
   const { id } = await context.params;
+
+  // Step 4F-2: cross-firm impersonation. `firmId` below is the resolved
+  // effective firm — under impersonation it is the target firm, otherwise
+  // session.firmId.
+  const url = new URL(request.url);
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "FirmMember",
+    entityId: id,
+    routeLabel: "PATCH /api/team/[id]",
+  });
+  if (!ctx.ok) return ctx.response;
+  const firmId = ctx.effectiveFirmId;
 
   const parsed = await parseJson(request, UpdateTeamMemberSchema);
   if (!parsed.ok) return parsed.response;
@@ -177,15 +201,16 @@ export async function PATCH(
       include: { user: { select: { id: true, name: true, email: true } } },
     });
 
-    if (!member || member.firmId !== firmId) {
-      if (member && member.firmId !== firmId) {
-        console.warn("Cross-firm team PATCH attempt", {
-          sessionFirmId: firmId,
-          attemptedFirmMemberId: id,
-          actorId: session.userId,
-          route: "PATCH /api/team/[id]",
-        });
-      }
+    if (!member) {
+      return err("Team member not found.", 404);
+    }
+    if (member.firmId !== firmId) {
+      console.warn("Cross-firm team PATCH attempt", {
+        effectiveFirmId: firmId,
+        attemptedFirmMemberId: id,
+        actorId: session.userId,
+        route: "PATCH /api/team/[id]",
+      });
       return err("Team member not found.", 404);
     }
 
