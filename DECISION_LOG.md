@@ -341,3 +341,66 @@ Historical Phase-0 product decisions (pre-takeover) live in `00_Project_Memory/T
   - AGENTS G1-G11 (file-edit discipline through pre-major-wave stress test).
   - Cost-discipline framework (G9; not engaged in Step 4 because no paid spend at Stage 0).
   - The parked status of any other decisions.
+
+## D-2026-05-06-02 - Section 14 Step 4A: Auth architecture confirmation
+
+- **Decision**: Lock the fifteen Step 4A architecture decisions listed below. This is documentation-only; no code, no package, no env, no schema change. Step 4B implementation is the next wave and is itself split into 4B-1 (package/env/helper preparation, no auth behaviour change) and 4B-2 (real `requireSession()` implementation), per the post-plan-review correction. The fifteen decisions establish the canonical Step 4 architecture reference for all subsequent sub-waves.
+  - **4A-A1 — Identity provider**: Supabase Auth. No Auth.js. No custom auth. Aligned with MASTER Section 14 Step 4 + the existing five Supabase-related env vars + the existing `tenant-guard.ts` domain-validation utility.
+  - **4A-B1 — Session approach**: server-managed cookie-based Supabase SSR session using `@supabase/ssr`, configured with secure cookie settings where supported and verified during 4B implementation. Do NOT over-lock "HTTP-only" as a hard guarantee until 4B implementation confirms the actual cookie behaviour and options at the Supabase + Next.js + Netlify integration boundary. Bearer-token paths remain reserved for future API clients only; not implemented at Stage 0.
+  - **4A-C1 — Server integration**: `@supabase/ssr` plus `@supabase/supabase-js`, subject to package installation in Step 4B-1. Note: `@supabase/ssr` is currently in beta and its API may evolve; the 4B-2 implementation must follow the current official Supabase docs at the time of implementation rather than relying on snapshot patterns.
+  - **4A-D1 — Session resolution location**: `requireSession()` inside `src/lib/api-helpers.ts`. No middleware-based session resolution. Preserves the existing `requireAuth()` contract used by all 14 protected routes; route files do NOT change at 4B-2 time.
+  - **4A-E1 — Route protection model**: in-route `requireAuth(Action.X)` for all RBAC. No middleware-based RBAC. Preserves the corrected first-gate-then-mutation-auth pattern from D-2026-05-04-02.
+  - **4A-F1 — User mapping**: Supabase user maps to `PlatformUser` by normalized email (Decision I1-NORMALIZE pattern: trim + lowercase). No new schema column. No `authProviderId` column at Stage 0. No new mapping table. `PlatformUser.email @unique` already enforces global uniqueness.
+  - **4A-G1 — Firm context resolution**: server-side via active `FirmMember` lookup (`prisma.firmMember.findFirst({ where: { userId, isActive: true } })`). Never trust client-supplied `firmId` from URL params or body. Cross-firm action goes through Step 4F's audited impersonation helper.
+  - **4A-H1 — Platform Owner behaviour**: PLATFORM_OWNER has no all-firm access by default. Audited impersonation flow lands in Step 4F (writes `CROSS_FIRM_IMPERSONATE` ActivityLog row before granting cross-firm access). Until 4F lights up, PLATFORM_OWNER without `firmId` returns 400 — existing pattern preserved per AGENTS G11 ("no Platform Owner all-firm escape before audited impersonation").
+  - **4A-I1 — Inactive-user behaviour**: `requireSession()` returns null (cascade to 401) if any of: (a) `PlatformUser` not found by email, (b) `PlatformUser.isActive = false`, (c) for non-PLATFORM_OWNER, no active `FirmMember` exists, (d) all candidate FirmMembers have `isActive = false`. Locked-by-default cascade preserved.
+  - **4A-J1 — Multi-firm membership**: deferred to Stage 1. Stage 0 expects exactly one active `FirmMember` per non-PLATFORM_OWNER `PlatformUser`. If multiple active FirmMembers are found at Stage 0, treat as misconfiguration and fail closed (return null from `requireSession()`). Firm switcher / multi-firm UX is a Stage 1 product feature requiring its own decision lock.
+  - **4A-K1 — Origin firms/tenant route hardening**: the five origin routes (`/api/firms/`, `/api/firms/[firmId]/`, `/api/firms/[firmId]/access/`, `/api/firms/[firmId]/members/`, `/api/tenant/validate/`) are NOT auth-gated today and MUST be hardened in Step 4D. Per D-2026-04-30-15 Decision 5 + the offline-workpack critical finding. Step 4D scope is locked to include all five.
+  - **4A-L1 — ActivityLog real-write sequencing**: `writeActivityLog()` real writes are enabled in Step 4E, AFTER Step 4D route regression and BEFORE Step 4F impersonation flow. Rationale: real writes need real `actorId` (post-4C), should not pollute the audit trail with attempted-but-blocked actions on unhardened routes (post-4D), and the impersonation flow's audit row depends on real writes existing (pre-4F).
+  - **4A-M1 — Package isolation**: Step 4B is split into 4B-1 (package/env/helper preparation; `package.json` + `package-lock.json` add `@supabase/ssr` and `@supabase/supabase-js`; possibly `.env.example` update; possibly NEW `src/lib/supabase-server.ts` thin wrapper file; NO auth behaviour change) and 4B-2 (real `requireSession()` implementation in `src/lib/api-helpers.ts`; this is the auth behaviour-change wave). The split isolates the package change blast radius from the session-resolution change blast radius. Each sub-wave is independently committable and revertable. Step 4C role/firm-context resolution may be folded into 4B-2 or shipped as a separate wave depending on practical complexity at implementation time.
+  - **4A-N1 — Service-role key handling**: `SUPABASE_SERVICE_ROLE_KEY` remains strictly server-only and is NOT used for ordinary session resolution. Normal session resolution uses Supabase SSR session helpers with `NEXT_PUBLIC_SUPABASE_URL` plus `NEXT_PUBLIC_SUPABASE_ANON_KEY` (the publishable / anon key), and Prisma maps the authenticated Supabase user to PlatformUser/FirmMember. Service-role usage is reserved only for separately reviewed server-only admin operations (if any are needed; none anticipated for Stage 0). Per Section 25.6 + AGENTS G6.
+  - **4A-O1 — Rollback model**: each Step 4 sub-wave (4B-1, 4B-2, 4C, 4D, 4E, 4F, 4G) is single-commit revertable. Reverting the 4B-2 `requireSession()` change returns the system to `return null` and the locked-by-default 401 cascade resumes. No half-auth state because route files never change in 4B-1, 4B-2, or 4C. Reverting 4D returns specific routes to their prior auth pattern (some back to public for the 5 origin routes — accepted Stage 0 risk during the 4D recovery window).
+- **Options considered**:
+  - **Identity provider**: Supabase Auth (chosen) / Auth.js / custom. Auth.js rejected because no project-file evidence supports it; would require fresh decision lock and infrastructure choice. Custom auth rejected; over-engineering for Stage 0.
+  - **Session transport**: server-managed Supabase SSR cookies (chosen) / bearer tokens / localStorage tokens. Bearer tokens reserved for future API clients only. localStorage tokens rejected (not HTTP-only-eligible; CSRF-vulnerable).
+  - **Server integration**: `@supabase/ssr` (chosen) / `@supabase/supabase-js` only / manual JWT verification. Last two rejected because they require manual cookie wiring or manual JWT validation; `@supabase/ssr` is the canonical Next.js App Router helper.
+  - **Session resolution location**: `requireSession()` in `api-helpers.ts` (chosen) / Next.js middleware / per-route logic. Middleware rejected because it cannot resolve `Action`-level RBAC cleanly. Per-route rejected for DRY violation.
+  - **Route protection**: in-route `requireAuth` (chosen) / middleware / hybrid. Hybrid rejected as more complex than benefit.
+  - **User mapping**: by normalized email (chosen) / by `authProviderId` column / by new mapping table. Last two rejected for Stage 0 (require schema change). Email-mapping accepts the email-change-handling risk as a Stage 1 follow-up if it surfaces.
+  - **Firm context**: server-side `FirmMember` lookup (chosen) / URL `firmId` / client-supplied `firmId`. Last two rejected for tenant-isolation principle (AGENTS G11).
+  - **Platform Owner**: no firm context by default + audited impersonation in 4F (chosen) / all-firm by default. Last rejected per AGENTS G11.
+  - **Inactive-user behaviour**: cascade to 401 (chosen) / 403 / 422. Cascade chosen because locked-by-default contract demands 401 on non-authenticatable callers.
+  - **Multi-firm membership at Stage 0**: defer (chosen) / pick first / firm switcher. Pick-first rejected for ambiguity (which one?). Firm switcher rejected as a Stage 1 product surface.
+  - **Origin route hardening**: include all 5 in Step 4D (chosen) / harden some / leave public. Last two rejected — five-public-route exposure is the explicit motivation for the reorder approval D-2026-05-06-01.
+  - **ActivityLog real-write sequencing**: 4E (chosen) / before 4D / after 4F. Sequencing rationale captured in 4A-L1 above.
+  - **Package isolation**: 4B-1 + 4B-2 split (chosen) / single 4B / no split. Single-4B rejected because it bundles the package-add risk with the auth-behaviour-change risk; split reduces rollback complexity.
+  - **Service-role usage**: server-only, not for ordinary session (chosen) / used in session resolution. Last rejected per Section 25.6 + AGENTS G6.
+  - **Rollback model**: per-sub-wave reverts (chosen) / feature flag / branch-based. Feature flag rejected as over-engineering for Stage 0; branch-based rejected because main branch is the deployment target.
+- **Rationale**: every decision is constrained by existing project files (MASTER Section 14 Step 4 plans Supabase Auth; permissions.ts already shaped for SessionUser; tenant-guard.ts already exists for domain validation; `requireSession()` body returns null today; locked-by-default contract proven across 14 routes). The three post-plan-review corrections (avoid HTTP-only overclaim, service-role guardrail, 4B split) sharpen the architecture without changing the substantive direction. Confidence HIGH per the offline workpack and the 4A planning report.
+- **Risks accepted**:
+  - `@supabase/ssr` is in beta; API may evolve. Mitigation: 4B-2 implementation follows official docs at time of implementation, not snapshot patterns.
+  - Supabase package install at 4B-1 is the only material `package.json` change in Step 4. Mitigation: isolated commit; revertable.
+  - Email-change handling (Decision 4A-F1) is unaddressed at Stage 0. Mitigation: flagged as Stage 1 follow-up if it surfaces.
+  - Multi-firm membership "fail closed" (Decision 4A-J1) could cause an authentication failure for a legitimate multi-firm user that was misconfigured at the data layer. Mitigation: Stage 0 is single-firm by design; if multi-firm configurations appear, raise a fresh decision before changing fail-closed behaviour.
+  - 4B-2 real `requireSession()` change has the highest risk of regressing the locked-by-default 401 contract. Mitigation: route files never change in 4B-2; cascade returns null on every failure path; revert restores the safety floor instantly.
+- **Guardrails**:
+  - Step 4B-1 must NOT change auth behaviour. It is package + helper file + governance docs only.
+  - Step 4B-2 must preserve the locked-by-default 401 contract: every failure path returns null from `requireSession()`.
+  - Step 4D MUST harden all five origin firms/tenant routes; must not skip any.
+  - Step 4E ActivityLog real writes wrap the Prisma create in `try/catch` with `console.error`; route success NOT contingent on audit-write success (per Section 25.6).
+  - Step 4F PLATFORM_OWNER impersonation MUST write `CROSS_FIRM_IMPERSONATE` ActivityLog row BEFORE the impersonated action proceeds.
+  - Step 4G UAT runs the full route regression matrix and tenant leakage test plan.
+  - No Step 5 work begins until BOTH Step 4 AND 3F are closed (D-2026-05-06-01 guardrail preserved).
+  - No 3F implementation begins until Step 4 is closed and 3F plan is re-presented as a fresh planning turn.
+  - Each Step 4 sub-wave must run its Tier 1 consistency check before commit.
+- **What remains unchanged**:
+  - 3D Tasks routes complete and verified.
+  - 3E Team route group complete and verified.
+  - The locked-by-default 401 contract.
+  - Section 23 operating rules.
+  - Section 25 security guardrails.
+  - AGENTS G1-G11.
+  - Cost-discipline framework (G9; not engaged at Stage 0).
+  - Section 14 reorder D-2026-05-06-01 (Step 4 before 3F).
+  - All other parked decisions.
+- **Revisit trigger**: if 4B-2 implementation surfaces a Supabase-side architectural blocker (e.g., `@supabase/ssr` API change, cookie handling regression at Netlify edge), raise a fresh decision before proceeding. If the email-mapping approach (4A-F1) surfaces a real edge case at Stage 0, raise a fresh decision before changing it. Otherwise this 15-decision set is the locked Step 4 architecture reference for all sub-waves.

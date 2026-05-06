@@ -1016,3 +1016,42 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
   - No commits / pushes by agent.
 - **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave. Latest verified runtime/code commit remains `c5535f3` (NOT advanced — this is a documentation-only commit per Synchronization Rule #8).
 - **Status**: completed pending Pankaj's commit and push approval. After this wave commits, the project is unblocked to proceed to Step 4A architecture-confirmation planning (next prompt).
+
+---
+
+## C-2026-05-06-02 - Section 14 Step 4A: Auth architecture confirmation
+
+- **Date**: 2026-05-06
+- **Task**: Documentation-only architecture-confirmation wave for Section 14 Step 4A. Locks the auth architecture decisions before any code lands. 15 decisions captured at D-2026-05-06-02 covering identity provider (Supabase Auth), session approach (server-managed cookie-based via `@supabase/ssr`), server integration (`@supabase/ssr` + `@supabase/supabase-js` package addition deferred to 4B-1), session resolution location (`requireSession()` in `api-helpers.ts`), route protection (in-route `requireAuth(...)`), user mapping (by normalized email), firm context resolution (active FirmMember server-side lookup), PLATFORM_OWNER behaviour (no firm context by default; impersonation in 4F), inactive-user behaviour (cascade to 401), multi-firm membership (deferred to Stage 1; Stage 0 fails closed), origin route hardening (5 routes in 4D), ActivityLog sequencing (4E after 4D before 4F), package isolation (4B split into 4B-1 prep + 4B-2 behaviour change), service-role key handling (server-only; NOT for ordinary session resolution), rollback model (per-sub-wave reverts; locked-by-default fallback intact). Step 4 implementation has NOT started. Three post-plan-review corrections applied to the 4A planning report before this commit.
+- **Files changed**:
+  - `DECISION_LOG.md` - new entry `D-2026-05-06-02 - Section 14 Step 4A: Auth architecture confirmation` capturing all 15 decisions (4A-A1 through 4A-O1) with options considered, chosen options, rationale, risks accepted, guardrails, what remains unchanged, and revisit trigger.
+  - `CURRENT_STATUS.md` - **(a)** Last-updated header refreshed to also cite C-2026-05-06-02. **(b)** Step 4 line in Current Stage block extended to read "PARTIALLY DONE; Step 4A architecture confirmed (drafted locally) per D-2026-05-06-02"; lists the 15 architecture decisions in compressed form; explicit "Step 4 implementation has NOT started" anchor; pending implementation sub-waves enumerated as 4B-1, 4B-2, 4C, 4D, 4E, 4F, 4G with the 4B split explicit. **(c)** New Repo Health bullet capturing Step 4A architecture-confirmation completion: 15 decisions locked; Supabase Auth + `@supabase/ssr` chosen with implementation deferred; secure cookie settings verified during implementation rather than over-locked as "HTTP-only"; service-role key strictly server-only and NOT used for ordinary session resolution; 4B split into 4B-1 (prep) + 4B-2 (behaviour change); explicit "no code, no package, no env, no schema change in this wave" anchors. **(d)** Priority Tasks list rewritten: items 1-7 are 4B-1 → 4B-2 → 4C → 4D → 4E → 4F → 4G; item 8 = 3F (after Step 4); item 9 = Step 5 (after Step 4 AND 3F); items 10-13 preserved deferred items.
+  - `MASTER_PROJECT.md` - Section 14 Step 3 line unchanged (3D + 3E remain done, 3F remains deferred per D-2026-05-06-01). Section 14 Step 4 line refined to read "PARTIALLY DONE; APPROVED AS NEXT CONTROLLED STEP per D-2026-05-06-01 (Section 14 reorder); Step 4A architecture confirmed per D-2026-05-06-02"; lists the 15 architecture decisions in compressed form; explicit "Step 4 implementation has NOT started; only the reorder approval (D-2026-05-06-01) and the architecture confirmation (D-2026-05-06-02) are committed at this point" anchor; pending implementation sub-waves enumerated as 4B-1 / 4B-2 / 4C / 4D / 4E / 4F / 4G. Section 0 metadata NOT bumped (no new MASTER governance section). Sections 22-25 unchanged.
+  - `CHANGE_LOG.md` - this entry.
+- **Reason**: Step 4A is the architecture-confirmation wave that precedes any Step 4 code. Locking the 15 decisions before 4B implementation starts removes architectural ambiguity from the Step 4 implementation path and gives a clean reference for sub-wave Tier 1 checks. The three post-plan-review corrections (avoid HTTP-only overclaim until 4B verifies actual cookie behaviour; service-role key strictly NOT used for ordinary session resolution; 4B split into 4B-1 prep + 4B-2 behaviour change) sharpen the architecture without changing substance. Confidence remains HIGH per the offline workpack and the 4A planning report.
+- **Three corrections captured** (via D-2026-05-06-02 wording):
+  - **Correction 1 (HTTP-only overclaim avoided)**: Decision 4A-B1 is locked as "server-managed cookie-based Supabase SSR session using `@supabase/ssr`, configured with secure cookie settings where supported and verified during implementation." HTTP-only specifics are NOT over-locked until 4B-2 confirms actual cookie behaviour at the Supabase + Next.js + Netlify integration boundary.
+  - **Correction 2 (service-role key handling)**: Decision 4A-N1 explicitly locks `SUPABASE_SERVICE_ROLE_KEY` as strictly server-only and NOT for ordinary session resolution. Normal session resolution uses Supabase SSR session helpers with `NEXT_PUBLIC_SUPABASE_URL` plus `NEXT_PUBLIC_SUPABASE_ANON_KEY`, then Prisma maps the authenticated Supabase user to PlatformUser/FirmMember. Service-role usage is reserved only for separately reviewed server-only admin operations (none anticipated for Stage 0).
+  - **Correction 3 (4B split)**: Decision 4A-M1 splits Step 4B into 4B-1 (package/env/helper preparation; `package.json` + `package-lock.json` add `@supabase/ssr` and `@supabase/supabase-js`; possibly NEW `src/lib/supabase-server.ts`; possibly `.env.example` update; NO auth behaviour change) and 4B-2 (real `requireSession()` implementation; auth behaviour-change wave). Step 4C role/firm-context may fold into 4B-2 or ship as a separate wave depending on practical complexity at implementation time. Split isolates package-add blast radius from auth-behaviour-change blast radius.
+- **Out of scope (intentional)**:
+  - No code changes. `requireSession()` body in `src/lib/api-helpers.ts:49` continues to return `null`. `writeActivityLog()` body returns `void`. Locked-by-default 401 contract intact.
+  - No schema changes. `prisma/schema.prisma` and `prisma/migrations/` untouched.
+  - No route changes. All 14 protected routes return 401 by construction; the 5 origin firms/tenant routes remain public (their hardening is Step 4D scope, not 4A scope).
+  - No `package.json` change. `@supabase/ssr` and `@supabase/supabase-js` are NOT installed in this wave; they install in Step 4B-1.
+  - No `package-lock.json` change.
+  - No env file change. The 5 existing Supabase env vars are unchanged. `.env.example` not edited.
+  - No `next.config.ts` or `netlify.toml` change.
+  - No Supabase dashboard changes (no project-level config, no Auth setup, no RLS, no JWT secret rotation).
+  - No Netlify settings changes (no env-var changes, no build-config changes).
+  - No GitHub settings changes.
+  - No Step 4B implementation (neither 4B-1 nor 4B-2).
+  - No `requireSession()` implementation.
+  - No `writeActivityLog()` implementation.
+  - No Step 4C / 4D / 4E / 4F / 4G implementation.
+  - No 3F planning or implementation (3F remains deferred per D-2026-05-06-01).
+  - No Step 5 work.
+  - No Platform Ownership Register population.
+  - No `AGENTS.md` change. G1-G11 remain as-is.
+  - No commits / pushes by agent.
+- **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave. Latest verified runtime/code commit remains `c5535f3` (NOT advanced — this is a documentation-only commit per Synchronization Rule #8).
+- **Status**: completed pending Pankaj's commit and push approval. After this wave commits, the project is unblocked to proceed to Step 4B-1 (package/env/helper preparation; first Step 4 implementation wave; isolated from auth behaviour change).
