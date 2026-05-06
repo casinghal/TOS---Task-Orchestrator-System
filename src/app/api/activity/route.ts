@@ -32,6 +32,7 @@ import {
   ok,
   requireAuth,
 } from "@/lib/api-helpers";
+import { resolveCrossFirmContext } from "@/lib/cross-firm";
 import { Action, FirmRole } from "@/lib/permissions";
 
 // --- Validation -----------------------------------------------------------
@@ -69,14 +70,25 @@ export async function GET(request: Request) {
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  // Same tenant contract as 3B clients route. No all-firm escape hatch
-  // for PLATFORM_OWNER here; cross-firm activity reads land in Step 4
-  // with audited impersonation.
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
-
   const url = new URL(request.url);
+
+  // Cross-firm impersonation (Step 4F-1): PLATFORM_OWNER may opt into
+  // reading another firm's activity log via ?impersonateFirmId=<targetFirmId>.
+  // Note: the impersonation grant itself writes a CROSS_FIRM_IMPERSONATE
+  // row to the TARGET firm's activity log BEFORE this read returns, so the
+  // operator's own impersonation is visible in the activity feed they then
+  // read. This is intentional (audit-of-the-audit-reader transparency).
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "ActivityLog",
+    routeLabel: "GET /api/activity",
+  });
+  if (!ctx.ok) return ctx.response;
+  const { effectiveFirmId } = ctx;
+
   const queryRaw = Object.fromEntries(url.searchParams.entries());
   const parsed = QuerySchema.safeParse(queryRaw);
   if (!parsed.success) {
@@ -99,7 +111,7 @@ export async function GET(request: Request) {
     entityType?: string;
     action?: string;
     createdAt?: { gte?: Date; lte?: Date };
-  } = { firmId: session.firmId };
+  } = { firmId: effectiveFirmId };
 
   // ARTICLE_STAFF: server-enforced own-actor scope. Any client-supplied
   // actorId is ignored - identity comes from the session and is written

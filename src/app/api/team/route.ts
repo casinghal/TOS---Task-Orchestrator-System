@@ -46,6 +46,7 @@ import {
   requireAuth,
   writeActivityLog,
 } from "@/lib/api-helpers";
+import { resolveCrossFirmContext } from "@/lib/cross-firm";
 import { Action } from "@/lib/permissions";
 import {
   DEFAULT_TEAM_PAGE_SIZE,
@@ -117,11 +118,21 @@ export async function GET(request: Request) {
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
-
   const url = new URL(request.url);
+
+  // Cross-firm impersonation (Step 4F-1): PLATFORM_OWNER may opt into
+  // listing another firm's team via ?impersonateFirmId=<targetFirmId>.
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "FirmMember",
+    routeLabel: "GET /api/team",
+  });
+  if (!ctx.ok) return ctx.response;
+  const { effectiveFirmId } = ctx;
+
   const queryRaw = Object.fromEntries(url.searchParams.entries());
   const parsed = QuerySchema.safeParse(queryRaw);
   if (!parsed.success) {
@@ -139,7 +150,7 @@ export async function GET(request: Request) {
     firmRole?: string;
     isActive?: boolean;
     user?: { name: { contains: string; mode: "insensitive" } };
-  } = { firmId: session.firmId };
+  } = { firmId: effectiveFirmId };
 
   if (q.firmRole) where.firmRole = q.firmRole;
 
@@ -196,10 +207,22 @@ export async function POST(request: Request) {
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
-  const firmId = session.firmId;
+  // Cross-firm impersonation (Step 4F-1): PLATFORM_OWNER may opt into adding
+  // a team member to another firm via ?impersonateFirmId=<targetFirmId>.
+  // The cross-firm collision logic below uses `firmId` (= effectiveFirmId)
+  // so existing-PlatformUser-in-this-firm vs existing-PlatformUser-in-some-other-firm
+  // detection still works correctly under impersonation.
+  const url = new URL(request.url);
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "FirmMember",
+    routeLabel: "POST /api/team",
+  });
+  if (!ctx.ok) return ctx.response;
+  const firmId = ctx.effectiveFirmId;
 
   const parsed = await parseJson(request, AddTeamMemberSchema);
   if (!parsed.ok) return parsed.response;
@@ -241,7 +264,7 @@ export async function POST(request: Request) {
       // Step 4 / Stage 1; do NOT create a FirmMember here. Do NOT reveal
       // the other firm's identity in the response.
       console.warn("Cross-firm PlatformUser collision rejected", {
-        sessionFirmId: firmId,
+        effectiveFirmId: firmId,
         attemptedEmail: normalizedEmail,
         actorId: session.userId,
         route: "POST /api/team",

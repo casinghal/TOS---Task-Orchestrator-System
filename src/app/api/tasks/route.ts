@@ -34,6 +34,7 @@ import {
   requireAuth,
   writeActivityLog,
 } from "@/lib/api-helpers";
+import { resolveCrossFirmContext } from "@/lib/cross-firm";
 import { Action, FirmRole } from "@/lib/permissions";
 import {
   DEFAULT_TASK_PAGE_SIZE,
@@ -116,11 +117,23 @@ export async function GET(request: Request) {
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
-
   const url = new URL(request.url);
+
+  // Cross-firm impersonation (Step 4F-1): PLATFORM_OWNER may opt into
+  // listing another firm's tasks via ?impersonateFirmId=<targetFirmId>.
+  // The helper handles the missing-session.firmId 400, the cross-firm 404,
+  // and the audit-or-503 on cross-firm grants.
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "Task",
+    routeLabel: "GET /api/tasks",
+  });
+  if (!ctx.ok) return ctx.response;
+  const { effectiveFirmId } = ctx;
+
   const queryRaw = Object.fromEntries(url.searchParams.entries());
   const parsed = QuerySchema.safeParse(queryRaw);
   if (!parsed.success) {
@@ -148,7 +161,7 @@ export async function GET(request: Request) {
       | { createdById: string }
       | { assignees: { some: { userId: string } } }
     >;
-  } = { firmId: session.firmId };
+  } = { firmId: effectiveFirmId };
 
   if (q.status) where.status = q.status;
   if (q.priority) where.priority = q.priority;
@@ -200,24 +213,37 @@ export async function POST(request: Request) {
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
+  // Cross-firm impersonation (Step 4F-1): PLATFORM_OWNER may opt into
+  // creating a task in another firm via ?impersonateFirmId=<targetFirmId>.
+  // All downstream cross-firm validations (clientId, reviewerId, assigneeIds)
+  // are scoped to effectiveFirmId — meaning under impersonation, those
+  // entities must belong to the TARGET firm, not the impersonator's home firm.
+  const url = new URL(request.url);
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "Task",
+    routeLabel: "POST /api/tasks",
+  });
+  if (!ctx.ok) return ctx.response;
+  const { effectiveFirmId } = ctx;
 
   const parsed = await parseJson(request, CreateTaskSchema);
   if (!parsed.ok) return parsed.response;
   const payload = parsed.data;
 
   try {
-    // Cross-firm validation: clientId must belong to firm AND be ACTIVE.
-    // 404 on firmId mismatch (does not leak existence); 422 on inactive
-    // (existence already known to caller in this case).
+    // Cross-firm validation: clientId must belong to effective firm AND be
+    // ACTIVE. 404 on firmId mismatch (does not leak existence); 422 on
+    // inactive (existence already known to caller in this case).
     const client = await prisma.client.findUnique({
       where: { id: payload.clientId },
     });
-    if (!client || client.firmId !== session.firmId) {
+    if (!client || client.firmId !== effectiveFirmId) {
       console.warn("Cross-firm clientId attempt", {
-        sessionFirmId: session.firmId,
+        effectiveFirmId,
         attemptedClientId: payload.clientId,
         route: "POST /api/tasks",
       });
@@ -228,18 +254,18 @@ export async function POST(request: Request) {
     }
 
     // Cross-firm validation: reviewerId must be an active FirmMember of
-    // the caller's firm.
+    // the effective firm.
     const reviewerMembership = await prisma.firmMember.findUnique({
       where: {
         firmId_userId: {
-          firmId: session.firmId,
+          firmId: effectiveFirmId,
           userId: payload.reviewerId,
         },
       },
     });
     if (!reviewerMembership || !reviewerMembership.isActive) {
       console.warn("Cross-firm or inactive reviewerId attempt", {
-        sessionFirmId: session.firmId,
+        effectiveFirmId,
         attemptedReviewerId: payload.reviewerId,
         route: "POST /api/tasks",
       });
@@ -247,10 +273,10 @@ export async function POST(request: Request) {
     }
 
     // Cross-firm validation: every assigneeId must be an active FirmMember
-    // of the caller's firm.
+    // of the effective firm.
     const assigneeMemberships = await prisma.firmMember.findMany({
       where: {
-        firmId: session.firmId,
+        firmId: effectiveFirmId,
         userId: { in: payload.assigneeIds },
         isActive: true,
       },
@@ -264,7 +290,7 @@ export async function POST(request: Request) {
     );
     if (invalidAssignees.length > 0) {
       console.warn("Cross-firm or inactive assigneeId attempt", {
-        sessionFirmId: session.firmId,
+        effectiveFirmId,
         attemptedAssigneeIds: invalidAssignees,
         route: "POST /api/tasks",
       });
@@ -277,7 +303,7 @@ export async function POST(request: Request) {
 
     const created = await prisma.task.create({
       data: {
-        firmId: session.firmId,
+        firmId: effectiveFirmId,
         clientId: payload.clientId,
         title: payload.title,
         description: payload.description ?? null,
@@ -293,10 +319,11 @@ export async function POST(request: Request) {
       include: { assignees: { select: { userId: true } } },
     });
 
-    // Deferred no-op per D-2026-04-30-15 Decision 4. Call site preserved
-    // so Step 4 can light up the audit trail without route churn.
+    // Audit row's firmId reflects the effective tenant scope (= target
+    // firm under impersonation, = own firm otherwise). actorId remains
+    // the impersonator's userId in either case.
     await writeActivityLog({
-      firmId: session.firmId,
+      firmId: effectiveFirmId,
       actorId: session.userId,
       entityType: "Task",
       entityId: created.id,

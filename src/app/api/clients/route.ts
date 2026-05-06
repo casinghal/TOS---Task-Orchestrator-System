@@ -20,6 +20,7 @@ import {
   requireAuth,
   writeActivityLog,
 } from "@/lib/api-helpers";
+import { resolveCrossFirmContext } from "@/lib/cross-firm";
 import { Action } from "@/lib/permissions";
 
 // --- Validation -----------------------------------------------------------
@@ -62,13 +63,23 @@ export async function GET(request: Request) {
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  // Platform Owner outside a firm context cannot list clients without a
-  // firmId. Standard users always have a firmId per session.
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
-
   const url = new URL(request.url);
+
+  // Cross-firm impersonation (Step 4F-1): PLATFORM_OWNER may opt into reading
+  // another firm's clients via ?impersonateFirmId=<targetFirmId>. The helper
+  // verifies role + target-firm existence + writes a fail-closed audit row
+  // before granting. STANDARD/FIRM_ADMIN cross-firm attempts are 404'd.
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "Client",
+    routeLabel: "GET /api/clients",
+  });
+  if (!ctx.ok) return ctx.response;
+  const { effectiveFirmId } = ctx;
+
   const pageRaw = Number(url.searchParams.get("page") ?? PAGE_DEFAULT);
   const pageSizeRaw = Number(url.searchParams.get("pageSize") ?? PAGE_SIZE_DEFAULT);
   const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : PAGE_DEFAULT;
@@ -80,12 +91,12 @@ export async function GET(request: Request) {
   try {
     const [items, total] = await Promise.all([
       prisma.client.findMany({
-        where: { firmId: session.firmId },
+        where: { firmId: effectiveFirmId },
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      prisma.client.count({ where: { firmId: session.firmId } }),
+      prisma.client.count({ where: { firmId: effectiveFirmId } }),
     ]);
 
     return ok({
@@ -106,9 +117,19 @@ export async function POST(request: Request) {
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  if (!session.firmId) {
-    return err("No firm context for this session.", 400);
-  }
+  // Cross-firm impersonation (Step 4F-1): PLATFORM_OWNER may opt into
+  // creating a client in another firm via ?impersonateFirmId=<targetFirmId>.
+  const url = new URL(request.url);
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "Client",
+    routeLabel: "POST /api/clients",
+  });
+  if (!ctx.ok) return ctx.response;
+  const { effectiveFirmId } = ctx;
 
   const parsed = await parseJson(request, CreateClientSchema);
   if (!parsed.ok) return parsed.response;
@@ -117,7 +138,7 @@ export async function POST(request: Request) {
   try {
     const created = await prisma.client.create({
       data: {
-        firmId: session.firmId,
+        firmId: effectiveFirmId,
         name: payload.name,
         pan: payload.pan ?? null,
         gstin: payload.gstin ?? null,
@@ -127,10 +148,12 @@ export async function POST(request: Request) {
       },
     });
 
-    // Deferred no-op per D-2026-04-30-15 Decision 4. Call site preserved so
-    // Step 4 can light up the audit trail without route churn.
+    // Step 4E lit up audit writes (real fail-open Prisma persistence).
+    // Audit row's firmId reflects the effective tenant scope (= target firm
+    // under impersonation, = own firm otherwise). actorId remains the
+    // impersonator's userId in either case.
     await writeActivityLog({
-      firmId: session.firmId,
+      firmId: effectiveFirmId,
       actorId: session.userId,
       entityType: "Client",
       entityId: created.id,
