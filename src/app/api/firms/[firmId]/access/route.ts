@@ -1,47 +1,25 @@
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { normalizeDomain, validateUserForFirm } from "@/lib/tenant-guard";
+// src/app/api/firms/[firmId]/access/route.ts
+// PracticeIQ Section 14 Step 4D - Deprecated route.
+//
+// POST /api/firms/[firmId]/access has been removed.
+//
+// Reason: real `requireSession()` (Step 4B-2, commit `0c47cd7`) now resolves
+// firm membership server-side on every authenticated request. There is no
+// remaining need for a separate "verify access" endpoint, and the original
+// implementation leaked (firmId, userId) probe results to anonymous callers.
+//
+// The route file is kept as a 410 Gone stub so the URL space registers a
+// clear deprecation signal rather than a 404 (which would imply the URL was
+// never valid). No active UI/source caller existed at deprecation time
+// (verified by mandatory grep at C-2026-05-06-XX implementation).
+//
+// Migration: remove any caller. The standard auth flow (`requireAuth(...)`)
+// fully covers the membership-verification need.
+//
+// References: MASTER_PROJECT.md Section 14 Step 4D; CHANGE_LOG C-2026-05-06-XX.
 
-type AccessPayload = {
-  userId: string;
-};
+import { err } from "@/lib/api-helpers";
 
-export async function POST(request: Request, context: { params: Promise<{ firmId: string }> }) {
-  if (!process.env.DATABASE_URL) {
-    return NextResponse.json({ ok: false, message: "DATABASE_URL is not configured." }, { status: 503 });
-  }
-
-  try {
-    const { firmId } = await context.params;
-    const payload = await request.json() as AccessPayload;
-    if (!payload.userId) {
-      return NextResponse.json({ ok: false, message: "userId is required." }, { status: 400 });
-    }
-
-    const record = await prisma.firmMember.findFirst({
-      where: { firmId, userId: payload.userId, isActive: true },
-      select: {
-        firm: { select: { emailDomain: true } },
-        user: { select: { email: true, platformRole: true } },
-      },
-    });
-
-    if (!record) {
-      return NextResponse.json({ ok: false, message: "User does not belong to this firm." }, { status: 403 });
-    }
-
-    const isOwner = record.user.platformRole === "PLATFORM_OWNER";
-    const validation = validateUserForFirm(
-      record.user.email,
-      normalizeDomain(record.firm.emailDomain ?? ""),
-      isOwner,
-    );
-    if (!validation.ok) {
-      return NextResponse.json(validation, { status: 403 });
-    }
-
-    return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ ok: false, message: "Unable to verify access." }, { status: 500 });
-  }
+export async function POST() {
+  return err("This endpoint has been removed. Use the standard auth flow.", 410);
 }

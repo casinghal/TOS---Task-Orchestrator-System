@@ -1,5 +1,28 @@
+// src/app/api/firms/route.ts
+// PracticeIQ Section 14 Step 4D - Firm creation route.
+// POST /api/firms - create a Firm record.
+//
+// Auth model (4D-locked):
+//   - Authentication required (real Supabase session via requireSession()).
+//   - Authorization: PLATFORM_OWNER only at Stage 0. Inline platformRole
+//     check rather than a new Action.FIRM_CREATE; the matrix gains nothing
+//     from a code that only PLATFORM_OWNER ever holds via its short-circuit.
+//   - No Action.FIRM_CREATE is introduced.
+//
+// Status codes:
+//   401 - unauthenticated
+//   403 - authenticated non-PLATFORM_OWNER
+//   400 - missing required fields
+//   422 - invalid emailDomain
+//   503 - DATABASE_URL not configured
+//   500 - unexpected Prisma/runtime failure
+//
+// References: MASTER_PROJECT.md Section 14 Step 4D; CHANGE_LOG C-2026-05-06-XX.
+
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { databaseUnavailable, err, requireSession } from "@/lib/api-helpers";
+import { PlatformRole } from "@/lib/permissions";
 import { normalizeDomain, validateFirmDomain } from "@/lib/tenant-guard";
 
 type CreateFirmPayload = {
@@ -11,8 +34,16 @@ type CreateFirmPayload = {
 };
 
 export async function POST(request: Request) {
-  if (!process.env.DATABASE_URL) {
-    return NextResponse.json({ ok: false, message: "DATABASE_URL is not configured." }, { status: 503 });
+  if (!process.env.DATABASE_URL) return databaseUnavailable();
+
+  // Auth gate: PLATFORM_OWNER only. Inline check per the 4D-locked decision
+  // (no Action.FIRM_CREATE; PLATFORM_OWNER is the only role that creates firms
+  // at Stage 0; cross-firm impersonation is Step 4F scope, not relevant here
+  // because firm creation does not target a specific existing firm).
+  const session = await requireSession(request);
+  if (!session) return err("Authentication required.", 401);
+  if (session.platformRole !== PlatformRole.PLATFORM_OWNER) {
+    return err("You do not have permission for this action.", 403);
   }
 
   try {

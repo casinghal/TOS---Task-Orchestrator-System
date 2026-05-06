@@ -1,89 +1,33 @@
-import { Prisma } from "@prisma/client";
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { normalizeDomain, validateUserForFirm } from "@/lib/tenant-guard";
+// src/app/api/firms/[firmId]/members/route.ts
+// PracticeIQ Section 14 Step 4D - Deprecated route.
+//
+// POST /api/firms/[firmId]/members has been removed.
+//
+// Reason: this endpoint duplicated `POST /api/team` (canonical 3E-2A path,
+// shipped at commit `f94027d`) and used a weaker shape — empty
+// `passwordHash: ""` instead of the sentinel `STEP4_MIGRATE_DISABLED:<uuid>`,
+// human-string firmRole values like "Firm Admin" instead of canonical codes,
+// no cross-firm collision detection, no ActivityLog call sites. Maintaining
+// two add-member routes invites drift; consolidation onto `/api/team` keeps
+// the auth + tenant + audit semantics single-sourced.
+//
+// The route file is kept as a 410 Gone stub so the URL space registers a
+// clear deprecation signal. No active UI/source caller existed at
+// deprecation time (verified by mandatory grep at C-2026-05-06-XX).
+//
+// Migration: any caller should switch to `POST /api/team`. The team route
+// is auth-gated via requireAuth(Action.TEAM_MANAGE), validates payload via
+// Zod, normalizes email, runs the create transaction, handles cross-firm
+// collisions with 422, and queues ActivityLog events for Step 4E.
+//
+// ActivityLog is intentionally NOT written from this stub: activity logging
+// is Step 4E scope and the deprecation itself is not an audit-worthy event.
+//
+// References: MASTER_PROJECT.md Section 14 Step 4D; Section 14 Step 3E-2A;
+// CHANGE_LOG C-2026-05-06-XX.
 
-type CreateMemberPayload = {
-  name: string;
-  email: string;
-  firmRole: "Firm Admin" | "Partner" | "Manager" | "Article/Staff";
-};
+import { err } from "@/lib/api-helpers";
 
-export async function POST(request: Request, context: { params: Promise<{ firmId: string }> }) {
-  if (!process.env.DATABASE_URL) {
-    return NextResponse.json({ ok: false, message: "DATABASE_URL is not configured." }, { status: 503 });
-  }
-
-  try {
-    const { firmId } = await context.params;
-    const payload = await request.json() as CreateMemberPayload;
-    const name = payload.name?.trim();
-    const email = payload.email?.trim().toLowerCase();
-    const firmRole = payload.firmRole;
-    if (!name || !email || !firmRole) {
-      return NextResponse.json({ ok: false, message: "Name, email, and role are required." }, { status: 400 });
-    }
-
-    const firm = await prisma.firm.findUnique({
-      where: { id: firmId },
-      select: { id: true, emailDomain: true },
-    });
-
-    if (!firm) {
-      return NextResponse.json({ ok: false, message: "Firm not found." }, { status: 404 });
-    }
-
-    const validation = validateUserForFirm(email, normalizeDomain(firm.emailDomain ?? ""), false);
-    if (!validation.ok) {
-      return NextResponse.json(validation, { status: 422 });
-    }
-
-    const member = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const existingUser = await tx.platformUser.findUnique({
-        where: { email },
-      });
-
-      const user = existingUser ?? await tx.platformUser.create({
-        data: {
-          name,
-          email,
-          passwordHash: "",
-          platformRole: "STANDARD",
-          isActive: true,
-        },
-      });
-
-      await tx.firmMember.upsert({
-        where: { firmId_userId: { firmId: firm.id, userId: user.id } },
-        create: {
-          firmId: firm.id,
-          userId: user.id,
-          firmRole: firmRole.toUpperCase().replace("/", "_"),
-          isActive: true,
-        },
-        update: {
-          firmRole: firmRole.toUpperCase().replace("/", "_"),
-          isActive: true,
-        },
-      });
-
-      return user;
-    });
-
-    return NextResponse.json({
-      ok: true,
-      member: {
-        id: member.id,
-        name: member.name,
-        email: member.email,
-        firmRole,
-        role: firmRole,
-        platformRole: "Standard",
-        lastActive: "Invited",
-        isActive: true,
-      },
-    });
-  } catch {
-    return NextResponse.json({ ok: false, message: "Unable to create member." }, { status: 500 });
-  }
+export async function POST() {
+  return err("This endpoint has been removed. Use POST /api/team.", 410);
 }

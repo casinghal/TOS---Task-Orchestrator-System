@@ -46,7 +46,7 @@ const CreateClientSchema = z.object({
   ),
   mobile: optionalTrimmedString,
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
-});
+}).strict();
 
 // Pagination query schema.
 const PAGE_DEFAULT = 1;

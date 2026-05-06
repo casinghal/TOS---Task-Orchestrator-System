@@ -1,5 +1,34 @@
+// src/app/api/firms/[firmId]/route.ts
+// PracticeIQ Section 14 Step 4D - Firm update route.
+// PATCH /api/firms/[firmId] - update a Firm record.
+//
+// Auth model (4D-locked):
+//   - requireAuth(Action.FIRM_UPDATE).
+//   - FIRM_ADMIN of the same firm and PLATFORM_OWNER (via the existing
+//     hasPermission() short-circuit) hold this action.
+//   - URL `firmId` MUST equal session.firmId. Cross-firm hits (including
+//     PLATFORM_OWNER not in that firm's active membership) return 404 to
+//     hide cross-tenant existence; a console.warn records the attempt for
+//     forensics per Section 25.4 #15.
+//   - PLATFORM_OWNER cross-firm access is Step 4F impersonation scope,
+//     not granted here.
+//
+// Status codes:
+//   401 - unauthenticated
+//   403 - authenticated, lacks Action.FIRM_UPDATE
+//   400 - missing required fields, or no firm context for session
+//   404 - cross-firm hit (hidden) or firm record not found
+//   422 - invalid emailDomain
+//   503 - DATABASE_URL not configured
+//   500 - unexpected Prisma/runtime failure
+//
+// References: MASTER_PROJECT.md Section 14 Step 4D; Section 25.4 #15;
+// CHANGE_LOG C-2026-05-06-XX.
+
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { databaseUnavailable, err, requireAuth } from "@/lib/api-helpers";
+import { Action } from "@/lib/permissions";
 import { normalizeDomain, validateFirmDomain } from "@/lib/tenant-guard";
 
 type UpdateFirmPayload = {
@@ -11,12 +40,33 @@ type UpdateFirmPayload = {
 };
 
 export async function PATCH(request: Request, context: { params: Promise<{ firmId: string }> }) {
-  if (!process.env.DATABASE_URL) {
-    return NextResponse.json({ ok: false, message: "DATABASE_URL is not configured." }, { status: 503 });
+  if (!process.env.DATABASE_URL) return databaseUnavailable();
+
+  // Auth gate: requires Action.FIRM_UPDATE (FIRM_ADMIN base array;
+  // PLATFORM_OWNER short-circuit). Cross-firm tenant isolation is enforced
+  // below after we know session.firmId.
+  const auth = await requireAuth(request, Action.FIRM_UPDATE);
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
+
+  const { firmId } = await context.params;
+
+  if (!session.firmId) {
+    return err("No firm context for this session.", 400);
+  }
+
+  // Cross-firm 404 + console.warn per Section 25.4 #15.
+  // PLATFORM_OWNER without an active membership in [firmId] also lands here
+  // because requireSession() resolves session.firmId from the unique active
+  // FirmMember; cross-firm impersonation is Step 4F scope.
+  if (firmId !== session.firmId) {
+    console.warn(
+      `Cross-firm hit prevented: session.firmId=${session.firmId} target.firmId=${firmId} route=PATCH /api/firms/[firmId]`,
+    );
+    return err("Firm not found.", 404);
   }
 
   try {
-    const { firmId } = await context.params;
     const payload = await request.json() as UpdateFirmPayload;
     const name = payload.name?.trim();
     const city = payload.city?.trim();

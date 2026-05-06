@@ -53,6 +53,13 @@ export const Action = {
   // Reports
   REPORTS_VIEW_ALL: "REPORTS_VIEW_ALL",
   REPORTS_VIEW_OWN: "REPORTS_VIEW_OWN",
+  // Firm record (Section 14 Step 4D)
+  // FIRM_UPDATE governs PATCH /api/firms/[firmId]. FIRM_ADMIN of that firm
+  // (and PLATFORM_OWNER via the existing short-circuit) hold this action.
+  // Cross-firm access is gated separately at the route layer (firmId
+  // vs session.firmId; cross-firm = 404 + console.warn). Cross-firm
+  // PLATFORM_OWNER access is Step 4F impersonation scope.
+  FIRM_UPDATE: "FIRM_UPDATE",
   // Modules
   MODULES_MANAGE: "MODULES_MANAGE",
   // Activity
@@ -100,6 +107,7 @@ const FIRM_ROLE_PERMISSIONS: Record<FirmRoleCode, ActionCode[]> = {
     Action.CLIENT_VIEW,
     Action.TEAM_MANAGE,
     Action.TEAM_VIEW,
+    Action.FIRM_UPDATE,
     Action.REPORTS_VIEW_ALL,
     Action.ACTIVITY_VIEW,
   ],

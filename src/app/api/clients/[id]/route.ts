@@ -66,6 +66,7 @@ const UpdateClientSchema = z
     mobile: nullableContactField,
     status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
   })
+  .strict()
   .refine(
     (data) =>
       data.name !== undefined ||
@@ -97,8 +98,15 @@ export async function GET(
 
   try {
     const client = await prisma.client.findUnique({ where: { id } });
-    if (!client || client.firmId !== session.firmId) {
-      // Treat cross-firm hits as 404 to avoid leaking that the id exists.
+    if (!client) {
+      return err("Client not found.", 404);
+    }
+    if (client.firmId !== session.firmId) {
+      // Cross-firm hit: treat as 404 to avoid leaking that the id exists.
+      // Section 25.4 #15 forensics: log the prevented cross-firm access.
+      console.warn(
+        `Cross-firm hit prevented: session.firmId=${session.firmId} target.firmId=${client.firmId} route=GET /api/clients/[id]`,
+      );
       return err("Client not found.", 404);
     }
     return ok(client);
@@ -131,7 +139,15 @@ export async function PATCH(
 
   try {
     const existing = await prisma.client.findUnique({ where: { id } });
-    if (!existing || existing.firmId !== session.firmId) {
+    if (!existing) {
+      return err("Client not found.", 404);
+    }
+    if (existing.firmId !== session.firmId) {
+      // Cross-firm hit: treat as 404 to avoid leaking that the id exists.
+      // Section 25.4 #15 forensics: log the prevented cross-firm access.
+      console.warn(
+        `Cross-firm hit prevented: session.firmId=${session.firmId} target.firmId=${existing.firmId} route=PATCH /api/clients/[id]`,
+      );
       return err("Client not found.", 404);
     }
 
