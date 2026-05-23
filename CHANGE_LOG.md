@@ -1336,6 +1336,37 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 
 ---
 
+## C-2026-05-06-13 - Section 14 Step 3F module routes, seed, UAT, and cleanup completion
+
+- **Date**: 2026-05-23
+- **Task**: Documentation sync recording the full completion of Section 14 Step 3F (Modules route group) — source implementation, ModuleFlag catalog seed, Netlify verification, focused authenticated UAT, audit verification, and UAT data cleanup. Step 3F is now fully closed. This is a documentation-only wave; no source code, schema, package, config, or environment changes were made in this entry.
+- **Source commit**: `b555eab` (`Section 14 Step 3F-1: Add module access API routes`). Pushed to `origin/main` and Netlify-deployed. Netlify production deploy reached state `ready`; branch `main`; context `production`. Scanned files count increased by 3 (2 new route files + 1 new constants file) confirming the runtime delta.
+- **Routes added** (in commit `b555eab`):
+  - `GET /api/modules` — new file `src/app/api/modules/route.ts`. Auth: `requireAuth(Action.MODULES_VIEW)` — all firm roles + PLATFORM_OWNER. Returns merged catalog of all 8 `ModuleFlag` rows with per-firm `FirmModuleAccess` override applied. Empty `items` array if catalog not yet seeded (no auto-seed from route). Cross-firm via `?impersonateFirmId` for PLATFORM_OWNER only (standard `resolveCrossFirmContext()` pattern from 4F).
+  - `PATCH /api/modules/[key]` — new file `src/app/api/modules/[key]/route.ts`. Auth: `requireAuth(Action.MODULES_MANAGE)` — PLATFORM_OWNER only (D2 decision). Validates key against `isKnownModuleKey()` (derived from `MODULE_CATALOG` constant) — unknown key → 404. Validates `ModuleFlag` DB row exists — unseeded key → 404. Upserts `FirmModuleAccess(effectiveFirmId, moduleFlagId)`. Emits `MODULE_ACCESS_CHANGE` audit row (fail-open per Step 4E). Body schema: `{ isEnabled: boolean }` strict (Zod `.strict()` — extra fields → 422; wrong type → 422; missing → 422). Returns `{ ok: true, data: { key, name, isEnabled } }`.
+  - `src/lib/module-constants.ts` — new file. Exports `MODULE_CATALOG` (8 canonical entries) and `isKnownModuleKey()` helper.
+- **ModuleFlag catalog seed**: 8 rows seeded via idempotent SQL in the Supabase SQL Editor using deterministic string IDs. No `createdAt`/`updatedAt` columns on `ModuleFlag` (schema has none). Rows: `mod_tasks_core` (TASKS_CORE, defaultEnabled: true), `mod_clients_core` (CLIENTS_CORE, defaultEnabled: true), `mod_reports_advanced` (REPORTS_ADVANCED, defaultEnabled: true), `mod_email_reminders` (EMAIL_REMINDERS, defaultEnabled: true), `mod_billing_portal` (BILLING_PORTAL, defaultEnabled: false), `mod_whatsapp_reminders` (WHATSAPP_REMINDERS, defaultEnabled: false), `mod_ai_assistant` (AI_ASSISTANT, defaultEnabled: false), `mod_workflow_templates` (WORKFLOW_TEMPLATES, defaultEnabled: false).
+- **Netlify live verification passed**: `GET /api/modules` returns 401 locked-by-default (unauthenticated probe); `PATCH /api/modules/test-key` returns 401 locked-by-default; `GET /api/modules/test-key` returns 405 Method Not Allowed (POST-only sub-route proves route registration). All existing regression endpoints unchanged.
+- **Focused authenticated UAT**: UAT script `_uat/run-3f-modules-uat.mjs` (local-only; not committed) executed against live Netlify deployment using real Supabase Auth sign-in (5 users: U1 PLATFORM_OWNER, U2 FIRM_ADMIN, U3 MANAGER, U4 PARTNER, U5 ARTICLE_STAFF). Test groups: T0 (unauthenticated + 405), T1–T4 (role GET coverage — PO, FA, Manager, AS), T5 (role-based PATCH 403 — non-PO firm roles), T6 (Zod validation — strict body schema), T7 (PO PATCH own-firm full lifecycle), T8 (cross-firm impersonation). **Result: 65/66 direct pass. 1 accepted variance: T6-5 (null body) returned 400 not 422 — accepted as fail-closed behaviour, not a backend or security defect.** All module-toggle semantics verified: OPEN toggle, RE-TOGGLE, cross-firm isolation (Firm A WHATSAPP_REMINDERS flag unaffected after Firm B toggled). Cross-firm `?impersonateFirmId` flow confirmed: non-PO gets 404 from `resolveCrossFirmContext()` (no role leak).
+- **Audit verification (T9)**: Firm A `MODULE_ACCESS_CHANGE` rows = 4; Firm B `MODULE_ACCESS_CHANGE` rows = 1; `CROSS_FIRM_IMPERSONATE` rows = 2 (T8-3 PO cross-firm GET + T8-5 PO cross-firm PATCH); blocked non-PO `CROSS_FIRM_IMPERSONATE` rows = 0 (non-PO never reaches the helper). All `metadataJson` fields contained only safe fields: `key`, `isEnabled`, `previousIsEnabled` — no PII, no tokens, no secrets.
+- **UAT data cleanup**: All `FirmModuleAccess` UAT rows deleted (dependency-ordered, children before parents). All UAT `ActivityLog` rows deleted after evidence was documented. All 5 UAT3F Supabase Auth users deleted from the Dashboard. Post-cleanup verification: all UAT counts = 0 across all relevant tables.
+- **Files changed** (this documentation-only wave):
+  - `CURRENT_STATUS.md` — (a) Last-updated header extended with C-2026-05-06-13. (b) Latest verified runtime/code commit SHA advanced from `213a24e` to `b555eab`. (c) New Repo Health bullet for Step 3F completion. (d) Step 3 in Current Stage changed from PARTIALLY DONE to DONE. (e) Step 4 closing note updated (no longer references 3F as next — Step 5 is next). (f) "What Is Partially Built" and "What Is Missing" updated to reflect 3F done. (g) Priority Tasks rewritten: Step 3F item marked COMPLETE; Step 5 plan-first promoted to #1 with Opus 4.7 note.
+  - `MASTER_PROJECT.md` — Section 14 Step 3F updated from DEFERRED to DONE; routes and permission model recorded; ModuleFlag catalog seed recorded; Step 5 noted as next locked step.
+  - `CHANGE_LOG.md` — this entry.
+  - `DECISION_LOG.md` — D-2026-05-06-03 added: D1 (fixed module catalog from code constant + controlled DB seed) and D2 (MODULES_MANAGE PLATFORM_OWNER-only; firm roles view only).
+- **Reason**: Per Synchronization Rule #8 of MASTER Section 24.4, the source commit `b555eab` was a runtime-bearing commit (3 new files). This doc-sync wave advances the SHA marker and closes Step 3F in all project memory files. With Step 4 and Step 3F both closed, Section 14 Step 5 (Persistence cutover) is the next locked step per D-2026-05-06-01. Per project operating rules, use Opus 4.7 for Step 5 plan-first because Step 5 changes source-of-truth from localStorage to API.
+- **Out of scope (intentional)**:
+  - No source code, schema, migration, package, env, config, Netlify, or Supabase setting changed.
+  - No SQL executed in this wave (seed and cleanup were completed prior).
+  - No Step 5 work started.
+  - No staging, committing, or pushing in this wave.
+  - No AGENTS.md change. G1-G11 remain as-is.
+- **Testing required**: None beyond doc review. No runtime / code change. `npm run uat:check` not required for documentation-only wave.
+- **Status**: completed. Step 3F is fully closed. Next controlled step: Section 14 Step 5 (Persistence cutover) plan-first. Use Opus 4.7 for Step 5 plan-first.
+
+---
+
 ## C-2026-05-06-11 - Section 14 Step 4G authenticated UAT and audit verification documentation sync
 
 - **Date**: 2026-05-23
