@@ -1335,3 +1335,31 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Status**: completed pending Pankaj's commit and push approval. After this wave commits, the project is unblocked to proceed to Step 4G plan-first wave (Auth UAT and tenant leakage testing; the final sub-wave under Step 4 before 3F can begin per the locked Section 14 sequence).
 
 ---
+
+## C-2026-05-06-11 - Section 14 Step 4G authenticated UAT and audit verification documentation sync
+
+- **Date**: 2026-05-23
+- **Task**: Documentation-only governance sync recording completion of Section 14 Step 4G (Auth UAT and tenant leakage testing). Step 4G was executed locally against the live Netlify deployment (`https://practice-iq.netlify.app`) on 2026-05-22; this entry records the result, the T10 audit verification, and the accepted T9 decision, and stages PG-5 cleanup. No runtime/code change; runtime/code SHA remains `213a24e`.
+- **What happened (Step 4G)**:
+  - **UAT fixture setup completed**: 2 UAT firms (`uat4g-firm-a`, `uat4g-firm-b`) with seeded clients/tasks/team members and 11 Supabase Auth UAT users (`uat-*` emails; `uat4g-pu-*` PlatformUser ids). All fixtures are UAT-only.
+  - **Authenticated UAT run completed**: real Supabase Auth sign-in for all 11 users; real SSR cookie-backed sessions exercised against live routes. Latest meaningful run started `2026-05-22T19:19:49.119Z`.
+  - **Initial result 92/96.** Four failures, all script-side, zero backend defects:
+    - T1-12, T3-6 (`POST /api/tasks/[id]/notes`): expected 200, got 201. The route correctly returns **201 Created** via `ok(note, 201)`. **Reclassified PASS** (script expectation error; note creation succeeded). Not re-run, to avoid creating extra UAT note rows.
+    - T1-13, T6-9 (`PATCH /api/firms/[firmId]`): expected 200, got 400. The route requires a full `name`+`city`+`plan` payload (documented 400 on missing fields); the script sent only `city`. **Script request-body error / correct backend validation.** Retried via the local-only `_uat/retry-4g-firm-patch.mjs` with full bodies (and explicit `emailDomain` to avoid blanking it); both passed 2/2 (T1-13 → 200, T6-9 → 200).
+  - **Functional result 96/96 effectively passed.** No backend/source defect found. No source code change required.
+  - **T10 audit verification (manual SQL) passed**: Firm A non-impersonation ActivityLog rows present including CLIENT_CREATE, CLIENT_UPDATE, TASK_CREATE, TASK_NOTE_ADD, FIRM_UPDATE. CROSS_FIRM_IMPERSONATE counts by actor: `uat4g-pu-po-as` = 4, `uat4g-pu-po-fa` = 10 (includes +1 from the T6-9 retry), non-PLATFORM_OWNER `uat4g-pu-fa-a` = 0. Metadata inspection showed only safe route / impersonatorFirmId values — no passwords, tokens, cookies, service keys, or secrets in ActivityLog metadata.
+- **Files changed**:
+  - `CURRENT_STATUS.md` - last-updated header extended with C-2026-05-06-11; new Repo Health bullet recording Step 4G completion (96/96 effective, T10 evidence, no defect, SHA `213a24e` unchanged, HEAD `15192d1`, PG-5 staged-not-executed); Current Stage Step 4 line updated to mark Step 4G completed and Step 4 functionally complete; Priority Tasks list reworked to lead with PG-5 cleanup execution and to gate 3F on Step 4 full closure (PG-5 executed).
+  - `MASTER_PROJECT.md` - Section 14 Step 4 line updated to mark Step 4G completed with the validated surfaces (Supabase Auth sign-in; real SSR cookie sessions; same-firm access; unauthorized access; tenant-leakage isolation; PLATFORM_OWNER cross-firm impersonation; fail-closed session edge cases; ActivityLog audit; deprecated routes; public tenant validation) and to note PG-5 cleanup pending. Section 0 metadata not bumped — operational status sync.
+  - `CHANGE_LOG.md` - this entry.
+  - `DECISION_LOG.md` - new decision D-2026-05-07-02 (T9 collection/entity ARTICLE_STAFF impersonation asymmetry accepted as deliberate Stage 0 behaviour).
+- **Decisions consumed / created**: D-2026-05-06-01 (Section 14 reorder; Step 4 before 3F), D-2026-05-06-02 (Step 4A architecture). **New: D-2026-05-07-02** (T9 Option A — document the collection/entity ARTICLE_STAFF impersonation asymmetry as deliberate Stage 0 behaviour).
+- **Out of scope (intentional)**:
+  - No source/route/schema/migration/package/env/config change. No Netlify/Supabase settings change. No `AGENTS.md` change.
+  - Local-only `_uat` artifacts (`run-4g-uat.mjs`, `retry-4g-firm-patch.mjs`, `pg5-cleanup.sql`) live outside the repo and are NOT committed.
+  - **PG-5 cleanup NOT executed.** It is staged (cleanup SQL drafted locally) and is the next action after this doc commit. ActivityLog UAT rows are deleted only after this evidence is committed because deletion is irreversible.
+  - No 3F or Step 5 work.
+- **Testing required**: None beyond doc review. No runtime/code change; `npm run uat:check` not required. Latest verified runtime/code commit remains `213a24e` (documentation-only sync per Synchronization Rule #8).
+- **Status**: completed pending Pankaj's commit and push approval. After this doc commit, the project is unblocked to execute PG-5 cleanup (Part A pre-check → Part B targeted DELETEs → Part C post-check → manual Supabase Auth user deletion), after which Step 4 is fully closed and 3F planning may begin.
+
+---
