@@ -61,6 +61,15 @@ export const Action = {
   // PLATFORM_OWNER access is Step 4F impersonation scope.
   FIRM_UPDATE: "FIRM_UPDATE",
   // Modules
+  // MODULES_VIEW: all firm roles may read the firm's module catalog + effective
+  //   state (granted in each firm-role base array below). PLATFORM_OWNER via
+  //   the short-circuit.
+  // MODULES_MANAGE: PLATFORM_OWNER only - intentionally NOT added to any
+  //   firm-role base array (granted via the PLATFORM_OWNER short-circuit in
+  //   hasPermission()). Module enablement is platform-level entitlement / plan
+  //   gating; firm self-service is deferred until billing / entitlement
+  //   governance exists (Step 3F-1 decision D2).
+  MODULES_VIEW: "MODULES_VIEW",
   MODULES_MANAGE: "MODULES_MANAGE",
   // Activity
   // ARTICLE_STAFF holds this action, but the route layer enforces an
@@ -110,6 +119,7 @@ const FIRM_ROLE_PERMISSIONS: Record<FirmRoleCode, ActionCode[]> = {
     Action.FIRM_UPDATE,
     Action.REPORTS_VIEW_ALL,
     Action.ACTIVITY_VIEW,
+    Action.MODULES_VIEW,
   ],
   PARTNER: [
     Action.TASK_CREATE,
@@ -122,6 +132,7 @@ const FIRM_ROLE_PERMISSIONS: Record<FirmRoleCode, ActionCode[]> = {
     Action.TEAM_VIEW,
     Action.REPORTS_VIEW_ALL,
     Action.ACTIVITY_VIEW,
+    Action.MODULES_VIEW,
   ],
   MANAGER: [
     Action.TASK_CREATE,
@@ -133,6 +144,7 @@ const FIRM_ROLE_PERMISSIONS: Record<FirmRoleCode, ActionCode[]> = {
     Action.TEAM_VIEW,
     Action.REPORTS_VIEW_ALL,
     Action.ACTIVITY_VIEW,
+    Action.MODULES_VIEW,
   ],
   ARTICLE_STAFF: [
     Action.TASK_ADD_NOTE,
@@ -141,6 +153,7 @@ const FIRM_ROLE_PERMISSIONS: Record<FirmRoleCode, ActionCode[]> = {
     Action.TEAM_VIEW,
     Action.REPORTS_VIEW_OWN,
     Action.ACTIVITY_VIEW,
+    Action.MODULES_VIEW,
   ],
 };
 
