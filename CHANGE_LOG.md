@@ -1363,3 +1363,27 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Status**: completed pending Pankaj's commit and push approval. After this doc commit, the project is unblocked to execute PG-5 cleanup (Part A pre-check → Part B targeted DELETEs → Part C post-check → manual Supabase Auth user deletion), after which Step 4 is fully closed and 3F planning may begin.
 
 ---
+
+## C-2026-05-06-12 - Section 14 Step 4G PG-5 cleanup completion documentation sync
+
+- **Date**: 2026-05-23
+- **Task**: Documentation-only governance sync recording completion of PG-5 (UAT data cleanup) for Section 14 Step 4G. PG-5 was executed by Pankaj after the Step 4G evidence was committed in PG-6 (repo HEAD `ebc0f1a`, C-2026-05-06-11). No runtime/code change; runtime/code SHA remains `213a24e`.
+- **What happened (PG-5)**:
+  - **Database cleanup ran successfully**: the staged, local-only `_uat/pg5-cleanup.sql` Part B targeted DELETEs were executed in the Supabase SQL Editor (dependency-ordered, children-first per the all-RESTRICT FK graph, single transaction).
+  - **Part C post-cleanup verification returned all zeros**: Firm = 0, PlatformUser = 0, FirmMember = 0, Client = 0, Task = 0, TaskAssignee = 0, TaskNote = 0, ActivityLog = 0, FirmSubscription = 0, FirmModuleAccess = 0.
+  - **All 11 UAT Supabase Auth users deleted** manually from the Dashboard: uat-po-fa, uat-fa-a, uat-mgr-a, uat-as-a (@uat-firm-a.test); uat-fa-b (@uat-firm-b.test); uat-inactive-pu, uat-inactive-fm (@uat-firm-a.test); uat-zero-fm, uat-multi-fm, uat-unmapped (@uat.test); uat-po-as (@uat-firm-a.test).
+  - With PG-5 complete, **Step 4G is fully closed and Section 14 Step 4 (Auth/RBAC + security spine) is now fully closed**.
+- **Files changed**:
+  - `CURRENT_STATUS.md` - last-updated header extended with C-2026-05-06-12; Step 4G Repo Health bullet updated to mark PG-5 complete (all UAT counts = 0; 11 Auth users deleted) and Step 4 fully closed; Current Stage Step 4 line updated to PG-5 complete / Step 4 fully closed / next step 3F plan-first; Priority Tasks updated (PG-5 marked complete; Step 3F flagged as the next controlled step).
+  - `MASTER_PROJECT.md` - Section 14 Step 4 line updated to record PG-5 cleanup completed after authenticated UAT, UAT fixtures and Auth users removed after evidence was committed, Step 4 fully closed, next controlled step 3F plan-first; locked step sequence preserved (no reorder).
+  - `CHANGE_LOG.md` - this entry.
+- **Decisions consumed / created**: D-2026-05-06-01 (Section 14 reorder; Step 4 before 3F). No new decision created; `DECISION_LOG.md` is NOT edited in this wave (the T9 decision was already recorded as D-2026-05-07-02 in C-2026-05-06-11).
+- **Out of scope (intentional)**:
+  - No source/route/schema/migration/package/env/config change. No Netlify/Supabase settings change. No `AGENTS.md` change. No `DECISION_LOG.md` change.
+  - Local-only `_uat` artifacts (`run-4g-uat.mjs`, `retry-4g-firm-patch.mjs`, `pg5-cleanup.sql`) remained outside the repo and uncommitted.
+  - No 3F or Step 5 work started.
+  - The agent did not run SQL, did not access Supabase, and did not delete any Auth user; PG-5 execution was performed by Pankaj.
+- **Testing required**: None beyond doc review. No runtime/code change; `npm run uat:check` not required. Latest verified runtime/code commit remains `213a24e` (documentation-only sync per Synchronization Rule #8).
+- **Status**: completed pending Pankaj's commit and push approval. After this doc commit, Section 14 Step 4 is fully closed; the next controlled step is Section 14 Step 3F (Modules) plan-first per D-2026-05-06-01, and Step 5 (Persistence cutover) follows 3F.
+
+---
