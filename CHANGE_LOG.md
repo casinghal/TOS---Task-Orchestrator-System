@@ -1445,3 +1445,25 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Status**: completed pending Pankaj's commit and push approval. Next controlled step: Section 14 Step 5B (persistence / data cutover) plan-first.
 
 ---
+
+## C-2026-05-24-02 - Section 14 Step 5B-0 data-access layer + export bridge: code, deploy, and verification
+
+- **Date**: 2026-05-24
+- **Task**: Record Section 14 Step 5B-0, the first implementation sub-wave of Step 5B (persistence / data cutover). 5B-0 is scaffolding only — no source-of-truth cutover. It adds a thin typed browser data-access layer and a PracticeIQ-only JSON export bridge. The ChatGPT §24.6 review gate for the 5A→5B boundary returned Go for 5B-0 only (with mandatory edits folded in). This entry covers the code wave, the production deploy, and verification. No DB/Auth change.
+- **Source commit**: `1bbe34a` (`Section 14 Step 5B-0: Add API client and export bridge`). Pushed `da2224d..1bbe34a main`. Netlify production deploy `6a12e0d64cf2e700082b05fd` reached state `ready` / published, branch `main`, context `production`; 1 serverless function + 1 edge function (middleware); secret scan 0 matches; `error_message` null; 52s build. Runtime/code SHA advances from `ea2866d` to `1bbe34a`.
+- **Code changed (in `1bbe34a`)**:
+  - `src/lib/api-client.ts` (new) - thin typed browser data-access layer. `ApiError` / `ApiErrorKind` / `classifyStatus` map status to kind (401 session, 403 authorization, 400/422 validation, 404 not_found, 503 db_unavailable, 500 / other 5xx server-defect, fetch-throw network). `doFetch` / `request<T>` transport (same-origin credentials; envelope parse). `apiGet` / `apiPost` / `apiPatch`. Provisional DTOs (Client / Task / TeamMember / Module / Activity / Firm) flagged for 5B-1 confirmation. Per-domain endpoint objects (`clientsApi`, `teamApi`, `tasksApi`, `activityApi`, `modulesApi`, `firmApi`). NOT wired into the UI (scaffolding only). No-API actions (task resequencing, member password reset, firm directory) deliberately not exposed.
+  - `src/app/page.tsx` (modified, additive) - new `exportWorkspace()` serialises ONLY the PracticeIQ workspace structures (assignments, tasks, clients, team, firm, firms, activity, modules) from in-memory state with metadata (`app`, `exportVersion`, `exportedAt`, `workspaceStorageKey`); no full-localStorage scan; no Supabase/auth/session keys. `Header` gains an `exportWorkspace` prop and a `FileDown` backup button beside logout; the call site passes it. No reads/writes, seed, or localStorage behaviour changed.
+  - No new dependency.
+- **Validation**: Windows `npm run uat:check` passed; staged set was exactly `src/lib/api-client.ts` + `src/app/page.tsx`; diff 2 files / 301 insertions / 3 deletions (the 3 deletions are the replaced wiring lines). Production verified at `1bbe34a`: deploy `ready` / published, no build errors/warnings, secret scan clean. Signed-out `https://practice-iq.netlify.app/api/team` returns `{"ok":false,"message":"Authentication required."}` (401, not 500) — no API regression (5B-0 changed no routes).
+- **ChatGPT §24.6 review gate**: Go for 5B-0 only. Code-level edit (export whitelist) implemented. Plan-level edits recorded for the gated steps before 5B-1: no silent localStorage fallback after a domain cuts over; production signed-in `/api/team` 200 DB-connectivity proof before cutover; temporary second-firm fixture for cross-tenant isolation UAT; PLATFORM_OWNER path for the 5B-5 modules-write UAT; the Firm + PlatformUser + FirmMember + Auth user treated as an internal POC access baseline (not auto-cleaned).
+- **Files changed (this documentation-only wave)**:
+  - `CHANGE_LOG.md` - this entry (appended at the bottom; older entries not reordered).
+  - `CURRENT_STATUS.md` - SHA advanced to `1bbe34a`; new Repo Health bullet for 5B-0; Current Stage Step 5 line and Priority Tasks updated to mark 5B-0 done and 5B-1 next.
+  - `MASTER_PROJECT.md` - Section 14 Step 5 updated: 5B-0 data-access layer + export bridge DONE; 5B-1 (clients read cutover) next.
+- **Reason**: per Synchronization Rule #8, `1bbe34a` is a runtime-bearing commit; this wave advances the SHA marker and records 5B-0 closure.
+- **Out of scope (intentional)**: no source/route/schema/migration/package/env/config change in this doc wave; no Netlify/Supabase settings change; no `AGENTS.md` change; no `DECISION_LOG.md` change; no 5B-1 work; no DB/Auth change; no staging/commit/push in this wave.
+- **Testing required**: none beyond doc review (documentation-only wave). The 5B-0 code was validated via `npm run uat:check`, the production deploy verification, and the signed-out smoke recorded above.
+- **Status**: completed pending Pankaj's commit and push approval. Next controlled step before 5B-1: the gated internal access baseline (Firm + PlatformUser + FirmMember + matching Supabase Auth user via Dashboard/Admin only) and a production signed-in `/api/team` 200 proof; then Section 14 Step 5B-1 (clients read cutover).
+
+---
