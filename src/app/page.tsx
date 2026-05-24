@@ -52,6 +52,7 @@ import {
   type TaskStatus,
   type TeamMember,
 } from "@/lib/workspace-data";
+import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 type Section = "dashboard" | "tasks" | "assignments" | "projectReview" | "clients" | "team" | "reports" | "firmSetup" | "admin";
 type ViewMode = "list" | "kanban";
@@ -111,6 +112,7 @@ const priorityTone: Record<Task["priority"], string> = {
 
 export default function Home() {
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [activeSection, setActiveSection] = useState<Section>("dashboard");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [modal, setModal] = useState<Modal>(null);
@@ -170,6 +172,27 @@ export default function Home() {
       modules,
     }));
   }, [activity, assignmentList, clientList, firmDirectory, firmProfile, isHydrated, modules, taskList, teamList]);
+
+  useEffect(() => {
+    let active = true;
+    getSupabaseBrowserClient()
+      .auth.getUser()
+      .then(({ data }) => {
+        if (!active) return;
+        const authedEmail = data.user?.email ? normalizeEmail(data.user.email) : null;
+        if (authedEmail) {
+          const member = seedTeam.find((item) => normalizeEmail(item.email) === authedEmail && item.isActive);
+          if (member) setSessionUserId(member.id);
+        }
+        setSessionChecked(true);
+      })
+      .catch(() => {
+        if (active) setSessionChecked(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const user = teamList.find((member) => member.id === sessionUserId) ?? null;
   const selectedTask = taskList.find((task) => task.id === selectedTaskId) ?? null;
@@ -393,12 +416,13 @@ export default function Home() {
     const normalizedEmail = normalizeEmail(email);
     if (!isAllowedLoginEmail(normalizedEmail, firmProfile.emailDomain)) return { ok: false, message: "Use your registered work email ID for this firm." };
     if (password.length < 8) return { ok: false, message: "Password must be at least 8 characters." };
+    const supabase = getSupabaseBrowserClient();
+    const { error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
+    if (error) return { ok: false, message: "Invalid email or password." };
     const member = teamList.find((item) => normalizeEmail(item.email) === normalizedEmail && item.isActive);
-    if (!member) return { ok: false, message: "No active user found for this email ID." };
-    const digest = await digestPassword(normalizedEmail, password);
-    if (member.passwordDigest && member.passwordDigest !== digest) return { ok: false, message: "Password does not match this user." };
-    if (!member.passwordDigest) {
-      setTeamList((current) => current.map((item) => item.id === member.id ? { ...item, passwordDigest: digest, lastActive: "Today" } : item));
+    if (!member) {
+      await supabase.auth.signOut();
+      return { ok: false, message: "Signed in, but no active workspace profile is mapped to this email." };
     }
     setSessionUserId(member.id);
     setActiveSection("dashboard");
@@ -409,12 +433,14 @@ export default function Home() {
   }
 
   function logout() {
+    void getSupabaseBrowserClient().auth.signOut();
     setSessionUserId(null);
     setActiveSection("dashboard");
     setSelectedTaskId(null);
     setModal(null);
   }
 
+  if (!sessionChecked) return <SessionLoading />;
   if (!user) return <LoginScreen onLogin={login} />;
 
   const memberActions: MemberActions = { resetPassword: resetMemberPassword, setActive: setMemberActive, updateRole: updateMemberRole };
@@ -454,6 +480,12 @@ export default function Home() {
       {selectedTask && <TaskDrawer assignments={assignmentList} task={selectedTask} team={teamList} clients={clientList} user={user} close={() => setSelectedTaskId(null)} addNote={addNote} moveTask={moveTask} />}
     </main>
   );
+}
+
+function SessionLoading() {
+  return <main className="font-login flex min-h-screen items-center justify-center bg-[#1e1f24] p-4 text-slate-100">
+    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-200/80">Checking secure session...</p>
+  </main>;
 }
 
 function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) => Promise<{ ok: boolean; message?: string }> }) {
@@ -1414,18 +1446,3 @@ function isAllowedLoginEmail(email: string, domain: string) {
   return isWorkspaceEmail(email, domain) || isPlatformOwnerEmail(email);
 }
 
-async function digestPassword(email: string, password: string) {
-  const bytes = new TextEncoder().encode(`${normalizeEmail(email)}:${password}`);
-  if (!crypto?.subtle) return fallbackDigest(bytes);
-  const hash = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(hash)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function fallbackDigest(bytes: Uint8Array) {
-  let hash = 2166136261;
-  for (const byte of bytes) {
-    hash ^= byte;
-    hash = Math.imul(hash, 16777619);
-  }
-  return `local-${(hash >>> 0).toString(16).padStart(8, "0")}`;
-}
