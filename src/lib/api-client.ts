@@ -158,6 +158,17 @@ export interface TeamMemberDTO {
   isActive: boolean;
 }
 
+// Section 14 Step 5B-3a-pre: current-user identity (GET /api/me). Minimal,
+// current-user-only shape. No email / passwordHash / tokens; see route comment.
+export interface MeDTO {
+  userId: string;
+  firmMemberId: string;
+  name: string;
+  firmRole: string;
+  platformRole: string;
+  firmId: string;
+}
+
 export interface ModuleDTO {
   key: string;
   name: string;
@@ -216,6 +227,14 @@ export const teamApi = {
   deactivate: (id: string, reason?: string) =>
     apiPost<TeamMemberDTO>(`/api/team/${id}/deactivate`, reason ? { reason } : undefined),
   reactivate: (id: string) => apiPost<TeamMemberDTO>(`/api/team/${id}/reactivate`),
+};
+
+// Section 14 Step 5B-3a-pre: current-user identity (server-authoritative).
+// GET /api/me returns the signed-in principal's own minimal identity; the UI's
+// current-user/role binding reads this (separate from the teamApi list). Not
+// wired into the UI yet - page.tsx consumption is 5B-3a.
+export const meApi = {
+  get: () => apiGet<MeDTO>("/api/me"),
 };
 
 export const tasksApi = {
