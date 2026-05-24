@@ -1514,3 +1514,22 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Status**: completed pending Pankaj's commit and push approval. Next controlled step: Section 14 Step 5B-3 (team read+write cutover) - plan-first. Use Opus 4.7.
 
 ---
+
+## C-2026-05-24-05 - Section 14 Step 5B-3a-pre /api/me current-user identity route: code, deploy, and verification
+
+- **Date**: 2026-05-24
+- **Task**: Record Section 14 Step 5B-3a-pre, the server-authoritative current-user identity route added ahead of 5B-3a (team read + identity rebind). `GET /api/me` returns the signed-in principal's own minimal identity so the UI can bind the current user's role from the server - not from `GET /api/team` (which excludes platformRole) and not from a client-side owner-email heuristic. Read-only; no schema/DB/Auth/team-route change.
+- **Source commit**: `04b5610` (full ref `04b56107a4cbdf09efbc8219cf2a7ec7b1d2ba67`; message `Section 14 Step 5B-3a-pre: Add current identity route`). Pushed `ccf3454..04b5610 main`. Diff: 2 files, 87 insertions. Netlify production deploy `6a1345b98c9b870008f5daa6` reached state `ready`/published, branch `main`, context `production`, published 2026-05-24 18:39:46 UTC, 56s build; 1 serverless + 1 edge function; secret scan 0 matches (70 files); `error_message` null; plugin success. Runtime/code SHA advances `53df712` -> `04b5610`.
+- **Code changed (in `04b5610`)**:
+  - NEW `src/app/api/me/route.ts` - GET only; `DATABASE_URL` guard -> `databaseUnavailable()` (503); `requireSession(request)` -> `err("Authentication required.", 401)` if null; one minimal read (`firmMember.findFirst` by `{ userId, firmId, isActive }` selecting `id` + `user.name`); `err("No active workspace profile.", 401)` if none; returns `{ userId, firmMemberId, name, firmRole, platformRole, firmId }` via `ok()`; `catch` -> `err(..., 500)`. No `requireAuth`/Action; no writes; no identity logging.
+  - `src/lib/api-client.ts` - additive only: `MeDTO` + `meApi.get()`. Existing `teamApi`/`TeamMemberDTO` untouched (their correction is 5B-3a).
+- **Trust model**: roles are DB-backed via `requireSession()` (Supabase `getUser()` JWT revalidation; platformRole from `PlatformUser`; firmRole/firmId from the unique active `FirmMember`; fail-closed). Not echoed from cookie/client state.
+- **Validation & UAT**: Windows `npm run uat:check` passed (`/api/me` present in the build route list). Local managed Playwright signed-out `GET /api/me` -> 401 exact body. Local CDP signed-in `GET /api/me` -> 200 with exactly the six minimal fields, correct role fields, and no `email`/`passwordHash`/token/cookie/`lastLoginAt`; signed-in `GET /api/team` -> 200. Production: deploy SHA matches `04b5610`; root loads; cookieless `curl` signed-out `GET /api/me` -> 401 exact body `{"ok":false,"message":"Authentication required."}`.
+- **Tooling hygiene note**: the managed Playwright MCP runs without `--isolated` and persists a profile, so a managed-browser request must NOT be assumed signed-out; isolate or clear the profile/cookies before signed-out testing. During this UAT the managed profile carried a persistent privileged production session, surfaced by the discriminating all-200 check across `/api/me` + `/api/team` + `/api/clients` (not a defect).
+- **Files changed (this documentation-only wave)**: `CHANGE_LOG.md` (this entry), `CURRENT_STATUS.md`, `MASTER_PROJECT.md`.
+- **Reason**: per Synchronization Rule #8, `04b5610` is a runtime-bearing commit; this wave advances the runtime/code SHA marker and records 5B-3a-pre closure. The documentation-sync commit itself is documentation-only and advances only the repository/main HEAD, not the runtime/code marker.
+- **Out of scope (intentional)**: no `page.tsx` wiring (5B-3a); no team-route change; no `teamApi`/`TeamMemberDTO` correction (5B-3a); no DB/Auth/schema/migration; no Netlify/`.env` change; no `DECISION_LOG.md` change (`/api/me` implements the already-approved identity-route addendum, not a new architecture decision); no 5B-3b; no other docs; no staging/commit/push in this wave.
+- **Testing required**: none beyond doc review (documentation-only wave). The route was validated via `uat:check` and the local/production UAT recorded above.
+- **Status**: 5B-3a-pre runtime route completed and verified; documentation sync pending approval, commit, and push. Next controlled step after the doc-sync commit: Section 14 Step 5B-3a (team read cutover + identity rebind, consuming `/api/me` + `/api/team`) - plan-first only.
+
+---
