@@ -440,6 +440,39 @@ export default function Home() {
     setModal(null);
   }
 
+  // Section 14 Step 5B-0: safety export bridge. Serialises ONLY the PracticeIQ
+  // workspace structures (never the whole localStorage; no Supabase/auth/session
+  // keys). Lets the operator download a backup before the 5B source-of-truth
+  // cutover. Read-only: does not mutate state or localStorage.
+  function exportWorkspace() {
+    const payload = {
+      app: "PracticeIQ",
+      exportVersion: 1,
+      exportedAt: new Date().toISOString(),
+      workspaceStorageKey,
+      workspace: {
+        assignments: assignmentList,
+        tasks: taskList,
+        clients: clientList,
+        team: teamList,
+        firm: firmProfile,
+        firms: firmDirectory,
+        activity,
+        modules,
+      },
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `practiceiq-workspace-${stamp}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  }
+
   if (!sessionChecked) return <SessionLoading />;
   if (!user) return <LoginScreen onLogin={login} />;
 
@@ -451,7 +484,7 @@ export default function Home() {
       <div className="flex min-h-screen">
         <Sidebar active={currentSection} firm={firmProfile} nav={allowedSections} setActive={setActiveSection} user={user} />
         <section className="flex min-w-0 flex-1 flex-col">
-          <Header active={currentSection} canCreateTask={canCreateTask} firm={firmProfile} nav={allowedSections} open={setModal} setActive={setActiveSection} user={user} logout={logout} />
+          <Header active={currentSection} canCreateTask={canCreateTask} firm={firmProfile} nav={allowedSections} open={setModal} setActive={setActiveSection} user={user} logout={logout} exportWorkspace={exportWorkspace} />
           <div className="p-4 md:p-6">
             <GuidanceNote title="Tip for effective usage" text={loginTip} />
             {currentSection === "dashboard" && <RoleDashboardView assignments={assignmentList} clients={clientList} modules={modules} openAssignment={() => setModal("assignment")} openTask={setSelectedTaskId} setActive={setActiveSection} tasks={taskList} team={teamList} user={user} />}
@@ -586,7 +619,7 @@ function Sidebar({ active, firm, nav, setActive, user }: { active: Section; firm
   </aside>;
 }
 
-function Header({ active, canCreateTask, firm, logout, nav, open, setActive, user }: { active: Section; canCreateTask: boolean; firm: FirmProfile; logout: () => void; nav: typeof navItems; open: (modal: Modal) => void; setActive: (section: Section) => void; user: TeamMember }) {
+function Header({ active, canCreateTask, exportWorkspace, firm, logout, nav, open, setActive, user }: { active: Section; canCreateTask: boolean; exportWorkspace: () => void; firm: FirmProfile; logout: () => void; nav: typeof navItems; open: (modal: Modal) => void; setActive: (section: Section) => void; user: TeamMember }) {
   const title = nav.find((item) => item.id === active)?.label ?? "PracticeIQ";
   const nextModal: Modal = active === "clients" ? "client" : active === "team" ? "team" : active === "assignments" || active === "projectReview" || active === "dashboard" ? "assignment" : active === "firmSetup" ? null : "task";
   const canManageTeam = user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin";
@@ -609,7 +642,7 @@ function Header({ active, canCreateTask, firm, logout, nav, open, setActive, use
         : active === "firmSetup"
           ? "Add Firm"
           : "Create Task";
-  return <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/86 px-4 py-3 backdrop-blur md:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-blue-700">{firm.name}</p><h1 className="text-xl font-semibold text-slate-950 md:text-2xl">{title}</h1></div><div className="flex flex-wrap items-center gap-2"><span className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:inline-flex">{user.name}</span><button aria-label="Notifications prepared for reminder layer" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400" disabled title="Notifications will activate with email reminders" type="button"><Bell size={18} /></button>{nextModal ? <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" disabled={!canUsePrimaryAction} onClick={() => open(nextModal)} title={!canUsePrimaryAction ? disabledReason : undefined} type="button"><Plus size={18} />{actionLabel}</button> : <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700" disabled title={disabledReason} type="button"><Plus size={18} />{actionLabel}</button>}<button aria-label="Log out" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={logout} type="button"><LogOut size={18} /></button></div></div><nav className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden" aria-label="Mobile workspace navigation">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600") + " inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"} onClick={() => setActive(item.id)} type="button"><Icon size={16} />{item.label}</button>; })}</nav></header>;
+  return <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/86 px-4 py-3 backdrop-blur md:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-blue-700">{firm.name}</p><h1 className="text-xl font-semibold text-slate-950 md:text-2xl">{title}</h1></div><div className="flex flex-wrap items-center gap-2"><span className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:inline-flex">{user.name}</span><button aria-label="Notifications prepared for reminder layer" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400" disabled title="Notifications will activate with email reminders" type="button"><Bell size={18} /></button>{nextModal ? <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" disabled={!canUsePrimaryAction} onClick={() => open(nextModal)} title={!canUsePrimaryAction ? disabledReason : undefined} type="button"><Plus size={18} />{actionLabel}</button> : <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700" disabled title={disabledReason} type="button"><Plus size={18} />{actionLabel}</button>}<button aria-label="Export workspace backup (JSON)" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={exportWorkspace} title="Download a JSON backup of this workspace" type="button"><FileDown size={18} /></button><button aria-label="Log out" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={logout} type="button"><LogOut size={18} /></button></div></div><nav className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden" aria-label="Mobile workspace navigation">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600") + " inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"} onClick={() => setActive(item.id)} type="button"><Icon size={16} />{item.label}</button>; })}</nav></header>;
 }
 
 function RoleDashboardView({ assignments, clients, modules, openAssignment, openTask, setActive, tasks, team, user }: { assignments: Assignment[]; clients: Client[]; modules: ModuleFlag[]; openAssignment: () => void; openTask: (id: string) => void; setActive: (section: Section) => void; tasks: Task[]; team: TeamMember[]; user: TeamMember }) {
