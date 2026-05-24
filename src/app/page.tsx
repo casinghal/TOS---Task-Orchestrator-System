@@ -76,10 +76,10 @@ const platformOwnerEmail = "singhal.accuron@gmail.com";
 const creatorRoles: FirmRole[] = ["Firm Admin", "Partner", "Manager"];
 const firmRoles: FirmRole[] = ["Firm Admin", "Partner", "Manager", "Article/Staff"];
 
-// Section 14 Step 5B-1: clients are READ from the API. Client writes (create/edit)
-// move to the database in 5B-2; until then the create path is deferred so nothing
-// appears to persist without writing.
-const CLIENT_WRITES_ENABLED = false;
+// Section 14 Step 5B-2: client CREATE writes through the API (POST /api/clients),
+// then the list refetches from GET /api/clients. Client edit/soft-delete remain out
+// of scope (no UI exists for them).
+const CLIENT_WRITES_ENABLED = true;
 
 // Maps the API client DTO to the UI Client shape (null -> undefined; status case).
 function mapClientDtoToUi(dto: ClientDTO): Client {
@@ -105,6 +105,22 @@ function clientsErrorMessage(error: ApiError): string {
       return "Clients are temporarily unavailable. Please retry shortly.";
     default:
       return "Could not load clients. Please retry.";
+  }
+}
+
+// Controlled, explicit error messaging for the client create write (no silent failure).
+function clientCreateErrorMessage(error: ApiError): string {
+  switch (error.kind) {
+    case "session":
+      return "Your session has expired. Please sign in again.";
+    case "authorization":
+      return "You do not have permission to add clients.";
+    case "validation":
+      return error.message || "Please check the client details and try again.";
+    case "db_unavailable":
+      return "Clients are temporarily unavailable. Please try again shortly.";
+    default:
+      return "Could not add the client. Please try again.";
   }
 }
 const loginTips = [
@@ -157,6 +173,7 @@ export default function Home() {
   const [clientList, setClientList] = useState<Client[]>(seedClients);
   const [clientsLoading, setClientsLoading] = useState(true);
   const [clientsError, setClientsError] = useState<ApiError | null>(null);
+  const [clientsNotice, setClientsNotice] = useState<string | null>(null);
   const [teamList, setTeamList] = useState<TeamMember[]>(seedTeam);
   const [firmProfile, setFirmProfile] = useState<FirmProfile>(firm);
   const [firmDirectory, setFirmDirectory] = useState<FirmProfile[]>([firm]);
@@ -309,21 +326,31 @@ export default function Home() {
     setModal(null);
   }
 
-  function createClient(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!CLIENT_WRITES_ENABLED) return; // 5B-1: client writes deferred to 5B-2 (no local-only persistence).
-    if (!user) return;
-    const form = new FormData(event.currentTarget);
-    const name = String(form.get("name") || "").trim();
-    if (!name) return;
-    const nextClient: Client = {
-      id: "c_" + Date.now(), name, status: "Active",
-      pan: textOrUndefined(form, "pan"), gstin: textOrUndefined(form, "gstin"),
-      email: textOrUndefined(form, "email"), mobile: textOrUndefined(form, "mobile"),
-    };
-    setClientList((current) => [nextClient, ...current]);
-    log(user.id, "Created client", "Client", name);
-    setModal(null);
+  // Section 14 Step 5B-2: client create writes through POST /api/clients, then the
+  // list refetches from the API (source of truth). The ClientModal manages its own
+  // submit lifecycle and closes on { ok: true }. Returns a result; never mutates
+  // local client state directly.
+  async function createClient(values: { name: string; pan?: string; gstin?: string; email?: string; mobile?: string }): Promise<{ ok: boolean; message?: string }> {
+    if (!CLIENT_WRITES_ENABLED) return { ok: false, message: "Client creation is not available." };
+    if (!user) return { ok: false, message: "No active session. Please sign in again." };
+    try {
+      const created = await clientsApi.create(values);
+      // Log to the local activity feed only after the create succeeds (the feed is
+      // still local until 5B-5; the server also writes a CLIENT_CREATE audit row).
+      log(user.id, "Created client", "Client", created.name);
+    } catch (error: unknown) {
+      return { ok: false, message: error instanceof ApiError ? clientCreateErrorMessage(error) : "Unable to add client. Please try again." };
+    }
+    // Refresh from the API. Do NOT retry the create if the refetch fails (avoids a
+    // duplicate); surface a controlled refresh hint instead.
+    try {
+      const result = await clientsApi.list();
+      setClientList(result.items.map(mapClientDtoToUi));
+      setClientsNotice(null);
+    } catch {
+      setClientsNotice("Client created, but the list could not refresh. Please reload the page.");
+    }
+    return { ok: true };
   }
 
   function createMember(event: FormEvent<HTMLFormElement>) {
@@ -555,7 +582,7 @@ export default function Home() {
             {currentSection === "tasks" && <TasksView assignments={assignmentList} stats={stats} tasks={visibleTasks} allTasks={taskList} clients={clientList} team={teamList} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} view={viewMode} setView={setViewMode} openTask={setSelectedTaskId} user={user} />}
             {currentSection === "assignments" && <AssignmentsView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openClient={CLIENT_WRITES_ENABLED ? () => setModal("client") : () => {}} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
             {currentSection === "projectReview" && <ProjectReviewView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
-            {currentSection === "clients" && <ClientsView assignments={assignmentList} clients={clientList} tasks={taskList} loading={clientsLoading} error={clientsError} open={CLIENT_WRITES_ENABLED ? () => setModal("client") : () => {}} />}
+            {currentSection === "clients" && <ClientsView assignments={assignmentList} clients={clientList} tasks={taskList} loading={clientsLoading} error={clientsError} notice={clientsNotice} open={CLIENT_WRITES_ENABLED ? () => setModal("client") : () => {}} />}
             {currentSection === "team" && <TeamView actions={memberActions} team={teamList} user={user} open={() => setModal("team")} />}
             {currentSection === "reports" && <ReportsView tasks={taskList} clients={clientList} team={teamList} />}
             {currentSection === "firmSetup" && <FirmSetupView
@@ -1015,8 +1042,8 @@ function ProjectTaskRow({ actions, canCoordinate, index, openTask, task, taskCou
   </div>;
 }
 
-function ClientsView({ assignments, clients, error, loading, open, tasks }: { assignments: Assignment[]; clients: Client[]; error: ApiError | null; loading: boolean; open: () => void; tasks: Task[] }) {
-  return <Panel title="Client master" subtitle="Client name is required. PAN, GSTIN, email, and mobile stay optional." action="Add Client" actionDisabled={!CLIENT_WRITES_ENABLED} actionTitle={CLIENT_WRITES_ENABLED ? "Add Client" : "Client creation moves to the database in the next step (5B-2); read-only in this build"} onAction={open}>{loading ? <div className="p-8 text-center text-sm text-slate-500">Loading clients...</div> : error ? <div className="p-8 text-center text-sm text-red-600" role="alert">{clientsErrorMessage(error)}</div> : <div className="divide-y divide-slate-100">{clients.length === 0 && <div className="p-8 text-center text-sm text-slate-500">No clients yet. Client creation is enabled in the next update (5B-2).</div>}{clients.map((client) => <div key={client.id} className="grid gap-2 p-4 md:grid-cols-[1.2fr_0.7fr_0.7fr_0.8fr_1fr_0.7fr]" title="Client record with optional statutory and contact details."><div><p className="font-semibold text-slate-950">{client.name}</p><p className="text-xs text-slate-500">{tasks.filter((task) => task.clientId === client.id).length} linked tasks</p></div><p className="text-sm text-slate-600">{assignments.filter((assignment) => assignment.clientId === client.id).length} assignments</p><p className="text-sm text-slate-600">PAN: {client.pan ?? "Optional"}</p><p className="text-sm text-slate-600">GSTIN: {client.gstin ?? "Optional"}</p><p className="text-sm text-slate-600">{client.email ?? client.mobile ?? "No contact added"}</p><span className="inline-flex w-fit rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700" title="Client status">{client.status}</span></div>)}</div>}</Panel>;
+function ClientsView({ assignments, clients, error, loading, notice, open, tasks }: { assignments: Assignment[]; clients: Client[]; error: ApiError | null; loading: boolean; notice: string | null; open: () => void; tasks: Task[] }) {
+  return <Panel title="Client master" subtitle="Client name is required. PAN, GSTIN, email, and mobile stay optional." action="Add Client" actionDisabled={!CLIENT_WRITES_ENABLED} actionTitle="Add Client" onAction={open}>{notice && <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status">{notice}</div>}{loading ? <div className="p-8 text-center text-sm text-slate-500">Loading clients...</div> : error ? <div className="p-8 text-center text-sm text-red-600" role="alert">{clientsErrorMessage(error)}</div> : <div className="divide-y divide-slate-100">{clients.length === 0 && <div className="p-8 text-center text-sm text-slate-500">No clients yet. Use Add Client to create one.</div>}{clients.map((client) => <div key={client.id} className="grid gap-2 p-4 md:grid-cols-[1.2fr_0.7fr_0.7fr_0.8fr_1fr_0.7fr]" title="Client record with optional statutory and contact details."><div><p className="font-semibold text-slate-950">{client.name}</p><p className="text-xs text-slate-500">{tasks.filter((task) => task.clientId === client.id).length} linked tasks</p></div><p className="text-sm text-slate-600">{assignments.filter((assignment) => assignment.clientId === client.id).length} assignments</p><p className="text-sm text-slate-600">PAN: {client.pan ?? "Optional"}</p><p className="text-sm text-slate-600">GSTIN: {client.gstin ?? "Optional"}</p><p className="text-sm text-slate-600">{client.email ?? client.mobile ?? "No contact added"}</p><span className="inline-flex w-fit rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700" title="Client status">{client.status}</span></div>)}</div>}</Panel>;
 }
 
 function FirmSetupView({
@@ -1396,8 +1423,53 @@ function AssignmentModal({ clients, close, submit, team }: { clients: Client[]; 
   return <ModalFrame title="Create assignment" subtitle="Create the roll-up stream before adding detailed tasks." close={close}><form className="space-y-4" onSubmit={submit}><Field label="Assignment name" name="name" placeholder="For example: Monthly GST compliance" required /><div className="grid gap-4 md:grid-cols-2"><Select label="Client" name="clientId" required><option value="">Select client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</Select><Field label="Period" name="period" placeholder="For example: April 2026" /></div><div className="grid gap-4 md:grid-cols-2"><Select label="Manager / owner" name="ownerId" required><option value="">Select manager</option>{activeTeam.filter((member) => member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.id}>{member.name} - {member.firmRole}</option>)}</Select><Select label="Reviewer" name="reviewerId" required><option value="">Select reviewer</option>{activeTeam.filter((member) => member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.id}>{member.name} - {member.firmRole}</option>)}</Select></div><Field label="Target date" name="dueDate" type="date" /><Actions close={close} label="Create Assignment" /></form></ModalFrame>;
 }
 
-function ClientModal({ close, submit }: { close: () => void; submit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <ModalFrame title="Add client" subtitle="Only client name is compulsory." close={close}><form className="space-y-4" onSubmit={submit}><Field label="Client name" name="name" required /><div className="grid gap-4 md:grid-cols-2"><Field label="PAN" name="pan" /><Field label="GSTIN" name="gstin" /><Field label="Email" name="email" type="email" /><Field label="Mobile/contact" name="mobile" /></div><Actions close={close} label="Add Client" /></form></ModalFrame>;
+function ClientModal({ close, submit }: { close: () => void; submit: (values: { name: string; pan?: string; gstin?: string; email?: string; mobile?: string }) => Promise<{ ok: boolean; message?: string }> }) {
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSubmitting) return;
+    const form = new FormData(event.currentTarget);
+    const name = String(form.get("name") || "").trim();
+    if (!name) {
+      setError("Client name is required.");
+      return;
+    }
+    const optional = (key: string) => {
+      const value = String(form.get(key) || "").trim();
+      return value || undefined;
+    };
+    const pan = optional("pan");
+    const gstin = optional("gstin");
+    const email = optional("email");
+    const mobile = optional("mobile");
+    // Email is the only optional field the API validates (CreateClientSchema). Mirror
+    // that rule client-side so an invalid entry shows a specific message. A blank email
+    // stays allowed (optional). PAN/GSTIN/mobile have no format rule in the API contract.
+    if (email !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("Invalid email address.");
+      return;
+    }
+    setError("");
+    setIsSubmitting(true);
+    let result: { ok: boolean; message?: string };
+    try {
+      result = await submit({ name, pan, gstin, email, mobile });
+    } catch {
+      setError("Unable to add client. Please try again.");
+      setIsSubmitting(false);
+      return;
+    }
+    if (result.ok) {
+      close();
+      return;
+    }
+    setError(result.message ?? "Unable to add client.");
+    setIsSubmitting(false);
+  }
+
+  return <ModalFrame title="Add client" subtitle="Only client name is compulsory." close={close}><form className="space-y-4" noValidate onSubmit={onSubmit}><Field label="Client name" name="name" required /><div className="grid gap-4 md:grid-cols-2"><Field label="PAN" name="pan" /><Field label="GSTIN" name="gstin" /><Field label="Email" name="email" type="email" /><Field label="Mobile/contact" name="mobile" /></div>{error && <div className="rounded-lg border border-red-300/50 bg-red-50 p-3 text-sm text-red-700" role="alert">{error}</div>}<Actions close={close} disabled={isSubmitting} label={isSubmitting ? "Adding..." : "Add Client"} /></form></ModalFrame>;
 }
 
 function TeamModal({ close, domain, submit }: { close: () => void; domain: string; submit: (event: FormEvent<HTMLFormElement>) => void }) {
@@ -1425,8 +1497,8 @@ function Select({ children, label, name, required }: { children: React.ReactNode
   return <label className="block" title={required ? `${label} is required.` : `${label} is optional.`}><span className="text-sm font-medium text-slate-700">{label}{required ? " *" : ""}</span><select className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue="" name={name} required={required} title={required ? `${label} is required.` : `${label} is optional.`}>{children}</select></label>;
 }
 
-function Actions({ close, label }: { close: () => void; label: string }) {
-  return <div className="sticky bottom-0 -mx-5 -mb-5 mt-2 flex justify-end gap-2 border-t border-slate-200 bg-white px-5 py-4"><button className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={close} title="Close without saving" type="button">Cancel</button><button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700" title={label} type="submit">{label}</button></div>;
+function Actions({ close, disabled, label }: { close: () => void; disabled?: boolean; label: string }) {
+  return <div className="sticky bottom-0 -mx-5 -mb-5 mt-2 flex justify-end gap-2 border-t border-slate-200 bg-white px-5 py-4"><button className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={close} title="Close without saving" type="button">Cancel</button><button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60" disabled={disabled} title={label} type="submit">{label}</button></div>;
 }
 
 function Workflow({ action, disabled, label }: { action: () => void; disabled: boolean; label: string }) {
