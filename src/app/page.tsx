@@ -53,6 +53,7 @@ import {
   type TeamMember,
 } from "@/lib/workspace-data";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { clientsApi, ApiError, type ClientDTO } from "@/lib/api-client";
 
 type Section = "dashboard" | "tasks" | "assignments" | "projectReview" | "clients" | "team" | "reports" | "firmSetup" | "admin";
 type ViewMode = "list" | "kanban";
@@ -74,6 +75,38 @@ const legacyStorageKeys = ["tos-tams-tkg-live-v1", "tos-tams-tkg-live-v2", "tos-
 const platformOwnerEmail = "singhal.accuron@gmail.com";
 const creatorRoles: FirmRole[] = ["Firm Admin", "Partner", "Manager"];
 const firmRoles: FirmRole[] = ["Firm Admin", "Partner", "Manager", "Article/Staff"];
+
+// Section 14 Step 5B-1: clients are READ from the API. Client writes (create/edit)
+// move to the database in 5B-2; until then the create path is deferred so nothing
+// appears to persist without writing.
+const CLIENT_WRITES_ENABLED = false;
+
+// Maps the API client DTO to the UI Client shape (null -> undefined; status case).
+function mapClientDtoToUi(dto: ClientDTO): Client {
+  return {
+    id: dto.id,
+    name: dto.name,
+    pan: dto.pan ?? undefined,
+    gstin: dto.gstin ?? undefined,
+    email: dto.email ?? undefined,
+    mobile: dto.mobile ?? undefined,
+    status: dto.status === "INACTIVE" ? "Inactive" : "Active",
+  };
+}
+
+// Controlled, explicit error messaging for the clients read (no silent fallback).
+function clientsErrorMessage(error: ApiError): string {
+  switch (error.kind) {
+    case "session":
+      return "Your session has expired. Please sign in again.";
+    case "authorization":
+      return "You do not have access to clients.";
+    case "db_unavailable":
+      return "Clients are temporarily unavailable. Please retry shortly.";
+    default:
+      return "Could not load clients. Please retry.";
+  }
+}
 const loginTips = [
   "Create the client first, then create the task. This keeps every action traceable till closure.",
   "Use Pending Client only when the next action is genuinely with the client.",
@@ -122,6 +155,8 @@ export default function Home() {
   const [assignmentList, setAssignmentList] = useState<Assignment[]>(seedAssignments);
   const [taskList, setTaskList] = useState<Task[]>(seedTasks);
   const [clientList, setClientList] = useState<Client[]>(seedClients);
+  const [clientsLoading, setClientsLoading] = useState(true);
+  const [clientsError, setClientsError] = useState<ApiError | null>(null);
   const [teamList, setTeamList] = useState<TeamMember[]>(seedTeam);
   const [firmProfile, setFirmProfile] = useState<FirmProfile>(firm);
   const [firmDirectory, setFirmDirectory] = useState<FirmProfile[]>([firm]);
@@ -147,7 +182,7 @@ export default function Home() {
         };
         if (saved.assignments) setAssignmentList(saved.assignments);
         if (saved.tasks) setTaskList(saved.tasks);
-        if (saved.clients) setClientList(saved.clients);
+        // Section 14 Step 5B-1: clients are no longer hydrated from localStorage; they load from GET /api/clients.
         if (saved.team) setTeamList(saved.team);
         if (saved.firm) setFirmProfile(saved.firm);
         if (saved.firms) setFirmDirectory(saved.firms);
@@ -164,14 +199,15 @@ export default function Home() {
     window.localStorage.setItem(workspaceStorageKey, JSON.stringify({
       assignments: assignmentList,
       tasks: taskList,
-      clients: clientList,
+      // Section 14 Step 5B-1: clients excluded from persist; API is source of truth.
+      // The pre-cutover `clients` key already in localStorage is left intact as backup.
       team: teamList,
       firm: firmProfile,
       firms: firmDirectory,
       activity,
       modules,
     }));
-  }, [activity, assignmentList, clientList, firmDirectory, firmProfile, isHydrated, modules, taskList, teamList]);
+  }, [activity, assignmentList, firmDirectory, firmProfile, isHydrated, modules, taskList, teamList]);
 
   useEffect(() => {
     let active = true;
@@ -193,6 +229,33 @@ export default function Home() {
       active = false;
     };
   }, []);
+
+  // Section 14 Step 5B-1: clients read cutover. Load from GET /api/clients once a
+  // session exists; map DB shape to UI shape. On failure show a controlled error
+  // state - never fall back to seed/localStorage clients.
+  useEffect(() => {
+    if (!sessionUserId) return;
+    let active = true;
+    // clientsLoading is initialised to true (loading-by-default once a session
+    // exists), so we do NOT set it synchronously here. State is updated only in
+    // the async resolve/reject callbacks below.
+    clientsApi
+      .list()
+      .then((result) => {
+        if (!active) return;
+        setClientList(result.items.map(mapClientDtoToUi));
+        setClientsError(null);
+        setClientsLoading(false);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setClientsError(error instanceof ApiError ? error : new ApiError("server", 0, "Unable to load clients."));
+        setClientsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [sessionUserId]);
 
   const user = teamList.find((member) => member.id === sessionUserId) ?? null;
   const selectedTask = taskList.find((task) => task.id === selectedTaskId) ?? null;
@@ -248,6 +311,7 @@ export default function Home() {
 
   function createClient(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!CLIENT_WRITES_ENABLED) return; // 5B-1: client writes deferred to 5B-2 (no local-only persistence).
     if (!user) return;
     const form = new FormData(event.currentTarget);
     const name = String(form.get("name") || "").trim();
@@ -489,9 +553,9 @@ export default function Home() {
             <GuidanceNote title="Tip for effective usage" text={loginTip} />
             {currentSection === "dashboard" && <RoleDashboardView assignments={assignmentList} clients={clientList} modules={modules} openAssignment={() => setModal("assignment")} openTask={setSelectedTaskId} setActive={setActiveSection} tasks={taskList} team={teamList} user={user} />}
             {currentSection === "tasks" && <TasksView assignments={assignmentList} stats={stats} tasks={visibleTasks} allTasks={taskList} clients={clientList} team={teamList} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} view={viewMode} setView={setViewMode} openTask={setSelectedTaskId} user={user} />}
-            {currentSection === "assignments" && <AssignmentsView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openClient={() => setModal("client")} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
+            {currentSection === "assignments" && <AssignmentsView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openClient={CLIENT_WRITES_ENABLED ? () => setModal("client") : () => {}} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
             {currentSection === "projectReview" && <ProjectReviewView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
-            {currentSection === "clients" && <ClientsView assignments={assignmentList} clients={clientList} tasks={taskList} open={() => setModal("client")} />}
+            {currentSection === "clients" && <ClientsView assignments={assignmentList} clients={clientList} tasks={taskList} loading={clientsLoading} error={clientsError} open={CLIENT_WRITES_ENABLED ? () => setModal("client") : () => {}} />}
             {currentSection === "team" && <TeamView actions={memberActions} team={teamList} user={user} open={() => setModal("team")} />}
             {currentSection === "reports" && <ReportsView tasks={taskList} clients={clientList} team={teamList} />}
             {currentSection === "firmSetup" && <FirmSetupView
@@ -508,7 +572,7 @@ export default function Home() {
       </div>
       {modal === "task" && <TaskModal assignments={assignmentList} clients={clientList} team={teamList} close={() => setModal(null)} submit={createTask} />}
       {modal === "assignment" && <AssignmentModal clients={clientList} close={() => setModal(null)} submit={createAssignment} team={teamList} />}
-      {modal === "client" && <ClientModal close={() => setModal(null)} submit={createClient} />}
+      {CLIENT_WRITES_ENABLED && modal === "client" && <ClientModal close={() => setModal(null)} submit={createClient} />}
       {modal === "team" && <TeamModal close={() => setModal(null)} submit={createMember} domain={firmProfile.emailDomain} />}
       {selectedTask && <TaskDrawer assignments={assignmentList} task={selectedTask} team={teamList} clients={clientList} user={user} close={() => setSelectedTaskId(null)} addNote={addNote} moveTask={moveTask} />}
     </main>
@@ -627,12 +691,16 @@ function Header({ active, canCreateTask, exportWorkspace, firm, logout, nav, ope
     ? user.platformRole === "Platform Owner"
     : active === "team"
       ? canManageTeam
-      : canCreateTask;
-  const disabledReason = active === "team"
-    ? "Only Platform Owner and Firm Admin can add users"
-    : active === "firmSetup"
-      ? "Only Platform Owner can register additional firms"
-      : "Only Firm Admin, Partner, and Manager can create this record";
+      : active === "clients"
+        ? CLIENT_WRITES_ENABLED && canCreateTask
+        : canCreateTask;
+  const disabledReason = active === "clients" && !CLIENT_WRITES_ENABLED
+    ? "Client creation moves to the database in the next step (5B-2); read-only in this build"
+    : active === "team"
+      ? "Only Platform Owner and Firm Admin can add users"
+      : active === "firmSetup"
+        ? "Only Platform Owner can register additional firms"
+        : "Only Firm Admin, Partner, and Manager can create this record";
   const actionLabel = active === "clients"
     ? "Add Client"
     : active === "team"
@@ -947,8 +1015,8 @@ function ProjectTaskRow({ actions, canCoordinate, index, openTask, task, taskCou
   </div>;
 }
 
-function ClientsView({ assignments, clients, open, tasks }: { assignments: Assignment[]; clients: Client[]; open: () => void; tasks: Task[] }) {
-  return <Panel title="Client master" subtitle="Client name is required. PAN, GSTIN, email, and mobile stay optional." action="Add Client" onAction={open}><div className="divide-y divide-slate-100">{clients.length === 0 && <div className="p-8 text-center text-sm text-slate-500">No clients added yet. Add the first client to unlock task creation against that client.</div>}{clients.map((client) => <div key={client.id} className="grid gap-2 p-4 md:grid-cols-[1.2fr_0.7fr_0.7fr_0.8fr_1fr_0.7fr]" title="Client record with optional statutory and contact details."><div><p className="font-semibold text-slate-950">{client.name}</p><p className="text-xs text-slate-500">{tasks.filter((task) => task.clientId === client.id).length} linked tasks</p></div><p className="text-sm text-slate-600">{assignments.filter((assignment) => assignment.clientId === client.id).length} assignments</p><p className="text-sm text-slate-600">PAN: {client.pan ?? "Optional"}</p><p className="text-sm text-slate-600">GSTIN: {client.gstin ?? "Optional"}</p><p className="text-sm text-slate-600">{client.email ?? client.mobile ?? "No contact added"}</p><span className="inline-flex w-fit rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700" title="Client status">{client.status}</span></div>)}</div></Panel>;
+function ClientsView({ assignments, clients, error, loading, open, tasks }: { assignments: Assignment[]; clients: Client[]; error: ApiError | null; loading: boolean; open: () => void; tasks: Task[] }) {
+  return <Panel title="Client master" subtitle="Client name is required. PAN, GSTIN, email, and mobile stay optional." action="Add Client" actionDisabled={!CLIENT_WRITES_ENABLED} actionTitle={CLIENT_WRITES_ENABLED ? "Add Client" : "Client creation moves to the database in the next step (5B-2); read-only in this build"} onAction={open}>{loading ? <div className="p-8 text-center text-sm text-slate-500">Loading clients...</div> : error ? <div className="p-8 text-center text-sm text-red-600" role="alert">{clientsErrorMessage(error)}</div> : <div className="divide-y divide-slate-100">{clients.length === 0 && <div className="p-8 text-center text-sm text-slate-500">No clients yet. Client creation is enabled in the next update (5B-2).</div>}{clients.map((client) => <div key={client.id} className="grid gap-2 p-4 md:grid-cols-[1.2fr_0.7fr_0.7fr_0.8fr_1fr_0.7fr]" title="Client record with optional statutory and contact details."><div><p className="font-semibold text-slate-950">{client.name}</p><p className="text-xs text-slate-500">{tasks.filter((task) => task.clientId === client.id).length} linked tasks</p></div><p className="text-sm text-slate-600">{assignments.filter((assignment) => assignment.clientId === client.id).length} assignments</p><p className="text-sm text-slate-600">PAN: {client.pan ?? "Optional"}</p><p className="text-sm text-slate-600">GSTIN: {client.gstin ?? "Optional"}</p><p className="text-sm text-slate-600">{client.email ?? client.mobile ?? "No contact added"}</p><span className="inline-flex w-fit rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700" title="Client status">{client.status}</span></div>)}</div>}</Panel>;
 }
 
 function FirmSetupView({
@@ -1304,8 +1372,8 @@ function ActionTile({ done, label, text }: { done: boolean; label: string; text:
   </div>;
 }
 
-function Panel({ action, children, onAction, subtitle, title }: { action: string; children: React.ReactNode; onAction: () => void; subtitle: string; title: string }) {
-  return <div className="rounded-lg border border-slate-200 bg-white shadow-sm" title={subtitle}><div className="flex items-center justify-between border-b border-slate-200 p-4"><div><h2 className="font-semibold text-slate-950">{title}</h2><p className="text-sm text-slate-500">{subtitle}</p></div><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700" onClick={onAction} title={action} type="button">{action}</button></div>{children}</div>;
+function Panel({ action, actionDisabled, actionTitle, children, onAction, subtitle, title }: { action: string; actionDisabled?: boolean; actionTitle?: string; children: React.ReactNode; onAction: () => void; subtitle: string; title: string }) {
+  return <div className="rounded-lg border border-slate-200 bg-white shadow-sm" title={subtitle}><div className="flex items-center justify-between border-b border-slate-200 p-4"><div><h2 className="font-semibold text-slate-950">{title}</h2><p className="text-sm text-slate-500">{subtitle}</p></div><button className={(actionDisabled ? "cursor-not-allowed bg-slate-200 text-slate-500" : "bg-blue-600 text-white hover:bg-blue-700") + " rounded-lg px-3 py-2 text-sm font-semibold"} disabled={actionDisabled} onClick={onAction} title={actionTitle ?? action} type="button">{action}</button></div>{children}</div>;
 }
 
 function ReportPanel({ detail, icon: Icon, title, value }: { detail: string; icon: typeof ClipboardList; title: string; value: string }) {

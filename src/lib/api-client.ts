@@ -188,8 +188,15 @@ export interface FirmDTO {
 //   - member password reset (Supabase Auth flow; disabled in 5B-3)
 //   - firm directory / multi-firm list (parked; single active firm only)
 
+export interface ClientListResult {
+  items: ClientDTO[];
+  pagination: { page: number; pageSize: number; total: number };
+}
+
 export const clientsApi = {
-  list: () => apiGet<ClientDTO[]>("/api/clients"),
+  // GET /api/clients returns { items, pagination } (confirmed in 5B-1). Single
+  // page sized for the POC; add pagination if total exceeds pageSize later.
+  list: () => apiGet<ClientListResult>("/api/clients?page=1&pageSize=200"),
   get: (id: string) => apiGet<ClientDTO>(`/api/clients/${id}`),
   create: (input: { name: string; pan?: string; gstin?: string; email?: string; mobile?: string }) =>
     apiPost<ClientDTO>("/api/clients", input),
