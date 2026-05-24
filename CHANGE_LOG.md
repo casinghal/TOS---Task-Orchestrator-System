@@ -1489,3 +1489,28 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Status**: completed pending Pankaj's commit and push approval. Next controlled step: Section 14 Step 5B-2 (clients write cutover) - plan-first / review pack.
 
 ---
+
+## C-2026-05-24-04 - Section 14 Step 5B-2 clients write (create) cutover: code, deploy, UAT, and test-client cleanup completion
+
+- **Date**: 2026-05-24
+- **Task**: Record Section 14 Step 5B-2, the clients write cutover wave of Step 5B. Scope is client CREATE only — the "Add Client" path now writes to the database via `POST /api/clients` instead of localStorage. Client edit and soft-delete are NOT in scope (no client edit/delete UI exists; `PATCH /api/clients/[id]` is unused; there is no DELETE route by design). Reads were already cut over in 5B-1. No DB schema / route / Auth change in the code wave.
+- **Source commit**: `53df712` (full ref `53df7126fa8caaa3601da6d1a90b80519373b736`; message `Section 14 Step 5B-2: Cut over client create path`). Pushed `3f5ff78..53df712 main`. Diff: 1 file (`src/app/page.tsx`), 98 insertions / 26 deletions. Netlify production deploy `6a132d34051d560008dc3bc2` reached state `ready`/published, branch `main`, context `production`, published 2026-05-24 16:55:03 UTC, 49-second build; 1 serverless function + 1 edge function (middleware); secret scan 0 matches across 69 files; `error_message` null; `plugin_state` success. Runtime/code SHA advances from `922968c` to `53df712`.
+- **Code changed (in `53df712`, `src/app/page.tsx` only)**:
+  - `CLIENT_WRITES_ENABLED` flipped to `true`; the 5B-1 deferred-write gating removed for the create path. The "Add Client" control, the Header clients action, and `ClientModal` are now active.
+  - `createClient` now calls `POST /api/clients` then refetches the clients list (no optimistic UI; the in-memory `log()` activity entry is written only after the API create succeeds; on refetch failure a partial-success notice is shown and the create is not retried).
+  - `ClientModal` submit lifecycle plus a client-side invalid-email guard that surfaces the exact message `"Invalid email address."`, mirroring the server `CreateClientSchema` email regex. Empty required name is blocked. PAN / GSTIN / mobile remain free-text optional (no added validation, per the locked control).
+  - CREATE only: no client edit / soft-delete UI; `PATCH /api/clients/[id]` is not wired; no DELETE route exists (soft-delete = `PATCH status=INACTIVE`, deferred with no UI).
+  - No new dependency. No route/schema/DB/Auth change.
+- **Validation**: Windows `npm run uat:check` passed. Local browser UAT green: login; UI create test client; signed-in `GET /api/clients` 200 includes the created client; reload still shows it; invalid email blocked with `"Invalid email address."`; empty required name blocked; signed-out `POST /api/clients` 401; no blank page / redirect loop / console error. Production verified at `53df712`: deploy `ready`/published, root loads, signed-out `https://practice-iq.netlify.app/api/clients` returns 401, no build errors or secret-scan issues.
+- **Test-client cleanup (executed 2026-05-24)**: the labelled UAT client `ZZ_TEST_5B2_CLIENT_DELETE_AFTER_UAT` (id `cmpjxgphp00011aakom4kct7e`, email `test.5b2@example.com`, firmId `firm_primary`) was removed from the PracticeIQ Supabase project (`sjeuilkccpcsjonvrfyu`) via phased targeted SQL: Phase 1 pre-check (`client_exists_by_id` = 1, `dependent_tasks` = 0); Phase 2 `DELETE` scoped by `id` + `name` + `firmId` affected exactly 1 row; Phase 3 post-check (`remaining_by_id` = 0, `zz_remaining` = 0, `baseline_firm_intact` = 1). The internal access baseline (Firm `firm_primary` + PlatformUser `pu_owner` + FirmMember `fm_owner` + Supabase Auth user) was not touched; no other Client rows touched; no other Supabase project touched.
+- **Commit-message wording note**: the commit message is literally `Cut over client create path`. This wave is the client create/write cutover for client creation only; it is not a client edit or delete cutover. Documentation uses this scope deliberately and does not describe 5B-2 more broadly.
+- **Files changed (this documentation-only wave)**:
+  - `CHANGE_LOG.md` - this entry (appended at the bottom; older entries not reordered).
+  - `CURRENT_STATUS.md` - SHA advanced to `53df712`; new Repo Health bullet for 5B-2; Current Stage Step 5 line and Priority Tasks updated to mark 5B-2 done and 5B-3 (team) next; last-updated header extended with C-2026-05-24-04.
+  - `MASTER_PROJECT.md` - Section 14 Step 5 updated: 5B-2 clients write/create cutover DONE; remaining 5B sequence now starts at 5B-3 (team).
+- **Reason**: per Synchronization Rule #8, `53df712` is a runtime-bearing commit; this wave advances the SHA marker and records 5B-2 closure across the control files.
+- **Out of scope (intentional)**: no source/route/schema/migration/package/env/config change in this doc wave; no Netlify/Supabase settings change; no `AGENTS.md` change; no `DECISION_LOG.md` change (no new architectural decision); no client edit/soft-delete work; no 5B-3 work; no DB/Auth change; no staging/commit/push in this wave.
+- **Testing required**: none beyond doc review (documentation-only wave). The 5B-2 code was validated via `npm run uat:check`, local browser UAT, the production deploy verification, and the signed-out `/api/clients` 401 smoke recorded above.
+- **Status**: completed pending Pankaj's commit and push approval. Next controlled step: Section 14 Step 5B-3 (team read+write cutover) - plan-first. Use Opus 4.7.
+
+---
