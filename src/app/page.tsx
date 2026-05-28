@@ -53,7 +53,7 @@ import {
   type TeamMember,
 } from "@/lib/workspace-data";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
-import { clientsApi, ApiError, type ClientDTO } from "@/lib/api-client";
+import { clientsApi, teamApi, meApi, ApiError, type ClientDTO, type TeamMemberDTO, type MeDTO } from "@/lib/api-client";
 
 type Section = "dashboard" | "tasks" | "assignments" | "projectReview" | "clients" | "team" | "reports" | "firmSetup" | "admin";
 type ViewMode = "list" | "kanban";
@@ -92,6 +92,81 @@ function mapClientDtoToUi(dto: ClientDTO): Client {
     mobile: dto.mobile ?? undefined,
     status: dto.status === "INACTIVE" ? "Inactive" : "Active",
   };
+}
+
+// Section 14 Step 5B-3a: team READ cutover + current-user identity from /api/me.
+// Team writes (add / role / deactivate / reactivate) and password reset remain
+// deferred - no UI-only mutation; password reset has no API. Flip in 5B-3b only.
+const TEAM_WRITES_ENABLED = false;
+
+// FirmRole code (API) -> UI display string.
+function firmRoleCodeToUi(code: string): FirmRole {
+  switch (code) {
+    case "FIRM_ADMIN": return "Firm Admin";
+    case "PARTNER": return "Partner";
+    case "MANAGER": return "Manager";
+    case "ARTICLE_STAFF": return "Article/Staff";
+    default: return "Article/Staff";
+  }
+}
+
+// PlatformRole code (API) -> UI display string.
+function platformRoleCodeToUi(code: string): TeamMember["platformRole"] {
+  return code === "PLATFORM_OWNER" ? "Platform Owner" : "Standard";
+}
+
+// Maps an API team member (GET /api/team) to the UI TeamMember shape. id binds to
+// firmMemberId. platformRole is NOT returned by /api/team, so it defaults to
+// "Standard" for list display only (it never drives current-user role decisions).
+function mapTeamDtoToUi(dto: TeamMemberDTO): TeamMember {
+  const role = firmRoleCodeToUi(dto.firmRole);
+  return {
+    id: dto.firmMemberId,
+    name: dto.name,
+    email: dto.email,
+    firmRole: role,
+    role,
+    platformRole: "Standard",
+    lastActive: dto.isActive ? "Active" : "Inactive",
+    isActive: dto.isActive,
+  };
+}
+
+// Builds the current-user object from the server-authoritative /api/me identity.
+// platformRole and firmRole come ONLY from /api/me. The session email is
+// display-only and must not drive role, permission, owner detection, identity
+// matching, or team lookup.
+function mapMeDtoToUi(me: MeDTO, sessionEmail: string): TeamMember {
+  const role = firmRoleCodeToUi(me.firmRole);
+  return {
+    id: me.firmMemberId,
+    name: me.name,
+    email: sessionEmail,
+    firmRole: role,
+    role,
+    platformRole: platformRoleCodeToUi(me.platformRole),
+    lastActive: "Active",
+    isActive: true,
+  };
+}
+
+// Controlled, explicit error messaging for the team read (no silent fallback).
+function teamErrorMessage(error: ApiError): string {
+  switch (error.kind) {
+    case "session": return "Your session has expired. Please sign in again.";
+    case "authorization": return "You do not have access to the team list.";
+    case "db_unavailable": return "The team list is temporarily unavailable. Please retry shortly.";
+    default: return "Could not load the team. Please retry.";
+  }
+}
+
+// Controlled messaging when /api/me cannot resolve the current user's identity.
+function identityErrorMessage(error: ApiError): string {
+  switch (error.kind) {
+    case "db_unavailable": return "We could not reach the server to confirm your profile. Please retry shortly.";
+    case "authorization": return "Your account does not have access to this workspace.";
+    default: return "We could not confirm your profile. Please sign in again.";
+  }
 }
 
 // Controlled, explicit error messaging for the clients read (no silent fallback).
@@ -175,6 +250,11 @@ export default function Home() {
   const [clientsError, setClientsError] = useState<ApiError | null>(null);
   const [clientsNotice, setClientsNotice] = useState<string | null>(null);
   const [teamList, setTeamList] = useState<TeamMember[]>(seedTeam);
+  const [teamLoading, setTeamLoading] = useState(true);
+  const [teamError, setTeamError] = useState<ApiError | null>(null);
+  const [currentUser, setCurrentUser] = useState<TeamMember | null>(null);
+  const [meLoading, setMeLoading] = useState(true);
+  const [identityError, setIdentityError] = useState<ApiError | "no_profile" | null>(null);
   const [firmProfile, setFirmProfile] = useState<FirmProfile>(firm);
   const [firmDirectory, setFirmDirectory] = useState<FirmProfile[]>([firm]);
   const [activity, setActivity] = useState<ActivityEvent[]>(initialActivityEvents);
@@ -200,7 +280,7 @@ export default function Home() {
         if (saved.assignments) setAssignmentList(saved.assignments);
         if (saved.tasks) setTaskList(saved.tasks);
         // Section 14 Step 5B-1: clients are no longer hydrated from localStorage; they load from GET /api/clients.
-        if (saved.team) setTeamList(saved.team);
+        // Section 14 Step 5B-3a: team is no longer hydrated from localStorage; it loads from GET /api/team.
         if (saved.firm) setFirmProfile(saved.firm);
         if (saved.firms) setFirmDirectory(saved.firms);
         if (saved.activity) setActivity(saved.activity);
@@ -218,29 +298,56 @@ export default function Home() {
       tasks: taskList,
       // Section 14 Step 5B-1: clients excluded from persist; API is source of truth.
       // The pre-cutover `clients` key already in localStorage is left intact as backup.
-      team: teamList,
+      // Section 14 Step 5B-3a: team excluded from persist; API is source of truth. Pre-cutover team cache left intact.
       firm: firmProfile,
       firms: firmDirectory,
       activity,
       modules,
     }));
-  }, [activity, assignmentList, firmDirectory, firmProfile, isHydrated, modules, taskList, teamList]);
+  }, [activity, assignmentList, firmDirectory, firmProfile, isHydrated, modules, taskList]);
 
+  // Section 14 Step 5B-3a: resolve the current-user identity from GET /api/me
+  // (server-authoritative platformRole + firmRole). No seed/email identity match.
   useEffect(() => {
     let active = true;
     getSupabaseBrowserClient()
       .auth.getUser()
-      .then(({ data }) => {
+      .then(async ({ data }) => {
         if (!active) return;
         const authedEmail = data.user?.email ? normalizeEmail(data.user.email) : null;
-        if (authedEmail) {
-          const member = seedTeam.find((item) => normalizeEmail(item.email) === authedEmail && item.isActive);
-          if (member) setSessionUserId(member.id);
+        if (!authedEmail) {
+          // Signed out: no /api/me call; fall through to the login screen.
+          setMeLoading(false);
+          setSessionChecked(true);
+          return;
         }
-        setSessionChecked(true);
+        try {
+          const me = await meApi.get();
+          if (!active) return;
+          setCurrentUser(mapMeDtoToUi(me, authedEmail));
+          setSessionUserId(me.firmMemberId);
+          setIdentityError(null);
+        } catch (error: unknown) {
+          if (!active) return;
+          // Distinguish "no active workspace profile" (controlled state) from a
+          // hard sign-out (treated as signed out). Never auto-sign-out / loop.
+          if (error instanceof ApiError && error.status === 401) {
+            setIdentityError(/profile/i.test(error.message) ? "no_profile" : null);
+          } else {
+            setIdentityError(error instanceof ApiError ? error : new ApiError("server", 0, "Unable to confirm your profile."));
+          }
+        } finally {
+          if (active) {
+            setMeLoading(false);
+            setSessionChecked(true);
+          }
+        }
       })
       .catch(() => {
-        if (active) setSessionChecked(true);
+        if (active) {
+          setMeLoading(false);
+          setSessionChecked(true);
+        }
       });
     return () => {
       active = false;
@@ -274,7 +381,33 @@ export default function Home() {
     };
   }, [sessionUserId]);
 
-  const user = teamList.find((member) => member.id === sessionUserId) ?? null;
+  // Section 14 Step 5B-3a: team read cutover. Load the firm team from
+  // GET /api/team once a session/identity exists; map to the UI shape. On
+  // failure show a controlled error - never fall back to seed/localStorage team.
+  useEffect(() => {
+    if (!sessionUserId) return;
+    let active = true;
+    teamApi
+      .list()
+      .then((result) => {
+        if (!active) return;
+        setTeamList(result.items.map(mapTeamDtoToUi));
+        setTeamError(null);
+        setTeamLoading(false);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setTeamError(error instanceof ApiError ? error : new ApiError("server", 0, "Unable to load the team."));
+        setTeamLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [sessionUserId]);
+
+  // Section 14 Step 5B-3a: the current user comes from /api/me (server-authoritative),
+  // not from a teamList lookup by id/email.
+  const user = currentUser;
   const selectedTask = taskList.find((task) => task.id === selectedTaskId) ?? null;
   const isPlatformOwner = user?.platformRole === "Platform Owner";
   const canCreateTask = Boolean(user && creatorRoles.includes(user.firmRole));
@@ -355,7 +488,7 @@ export default function Home() {
 
   function createMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!user) return;
+    if (!TEAM_WRITES_ENABLED || !user) return;
     const form = new FormData(event.currentTarget);
     const name = String(form.get("name") || "").trim();
     const email = normalizeEmail(String(form.get("email") || "").trim());
@@ -397,7 +530,7 @@ export default function Home() {
   }
 
   function setMemberActive(memberId: string, isActive: boolean) {
-    if (!user) return;
+    if (!TEAM_WRITES_ENABLED || !user) return;
     const target = teamList.find((member) => member.id === memberId);
     if (!target || !canManageMember(target)) return;
     setTeamList((current) => current.map((member) => member.id === memberId ? {
@@ -410,7 +543,7 @@ export default function Home() {
   }
 
   function resetMemberPassword(memberId: string) {
-    if (!user) return;
+    if (!TEAM_WRITES_ENABLED || !user) return;
     const target = teamList.find((member) => member.id === memberId);
     if (!target || !canManageMember(target)) return;
     setTeamList((current) => current.map((member) => member.id === memberId ? { ...member, passwordDigest: undefined, lastActive: "Password reset" } : member));
@@ -418,7 +551,7 @@ export default function Home() {
   }
 
   function updateMemberRole(memberId: string, firmRole: FirmRole) {
-    if (!user) return;
+    if (!TEAM_WRITES_ENABLED || !user) return;
     const target = teamList.find((member) => member.id === memberId);
     if (!target || !canManageMember(target)) return;
     setTeamList((current) => current.map((member) => member.id === memberId ? { ...member, firmRole, role: firmRole } : member));
@@ -510,12 +643,20 @@ export default function Home() {
     const supabase = getSupabaseBrowserClient();
     const { error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
     if (error) return { ok: false, message: "Invalid email or password." };
-    const member = teamList.find((item) => normalizeEmail(item.email) === normalizedEmail && item.isActive);
-    if (!member) {
+    let me: MeDTO;
+    try {
+      me = await meApi.get();
+    } catch (error: unknown) {
       await supabase.auth.signOut();
-      return { ok: false, message: "Signed in, but no active workspace profile is mapped to this email." };
+      if (error instanceof ApiError && error.status === 401 && /profile/i.test(error.message)) {
+        return { ok: false, message: "Signed in, but no active workspace profile is mapped to this account." };
+      }
+      return { ok: false, message: "Signed in, but we could not confirm your profile. Please try again." };
     }
-    setSessionUserId(member.id);
+    setCurrentUser(mapMeDtoToUi(me, normalizedEmail));
+    setSessionUserId(me.firmMemberId);
+    setIdentityError(null);
+    setMeLoading(false);
     setActiveSection("dashboard");
     setSelectedTaskId(null);
     setModal(null);
@@ -526,6 +667,9 @@ export default function Home() {
   function logout() {
     void getSupabaseBrowserClient().auth.signOut();
     setSessionUserId(null);
+    setCurrentUser(null);
+    setIdentityError(null);
+    setMeLoading(false);
     setActiveSection("dashboard");
     setSelectedTaskId(null);
     setModal(null);
@@ -564,8 +708,11 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
-  if (!sessionChecked) return <SessionLoading />;
-  if (!user) return <LoginScreen onLogin={login} />;
+  if (!sessionChecked || meLoading) return <SessionLoading />;
+  if (!user) {
+    if (identityError) return <IdentityIssue error={identityError} onSignOut={logout} />;
+    return <LoginScreen onLogin={login} />;
+  }
 
   const memberActions: MemberActions = { resetPassword: resetMemberPassword, setActive: setMemberActive, updateRole: updateMemberRole };
   const workMapActions: WorkMapActions = { reassignTask, resequenceTask, updateReviewer };
@@ -583,7 +730,7 @@ export default function Home() {
             {currentSection === "assignments" && <AssignmentsView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openClient={CLIENT_WRITES_ENABLED ? () => setModal("client") : () => {}} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
             {currentSection === "projectReview" && <ProjectReviewView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
             {currentSection === "clients" && <ClientsView assignments={assignmentList} clients={clientList} tasks={taskList} loading={clientsLoading} error={clientsError} notice={clientsNotice} open={CLIENT_WRITES_ENABLED ? () => setModal("client") : () => {}} />}
-            {currentSection === "team" && <TeamView actions={memberActions} team={teamList} user={user} open={() => setModal("team")} />}
+            {currentSection === "team" && <TeamView actions={memberActions} team={teamList} user={user} open={TEAM_WRITES_ENABLED ? () => setModal("team") : () => {}} loading={teamLoading} error={teamError} />}
             {currentSection === "reports" && <ReportsView tasks={taskList} clients={clientList} team={teamList} />}
             {currentSection === "firmSetup" && <FirmSetupView
               canCreateFirm={user.platformRole === "Platform Owner"}
@@ -593,14 +740,14 @@ export default function Home() {
               saveFirms={setFirmDirectory}
               user={user}
             />}
-            {currentSection === "admin" && <AdminView actions={memberActions} user={user} tasks={taskList} clients={clientList} team={teamList} activity={activity} modules={modules} toggleModule={toggleModule} openTeam={() => setModal("team")} firm={firmProfile} />}
+            {currentSection === "admin" && <AdminView actions={memberActions} user={user} tasks={taskList} clients={clientList} team={teamList} activity={activity} modules={modules} toggleModule={toggleModule} openTeam={TEAM_WRITES_ENABLED ? () => setModal("team") : () => {}} firm={firmProfile} />}
           </div>
         </section>
       </div>
       {modal === "task" && <TaskModal assignments={assignmentList} clients={clientList} team={teamList} close={() => setModal(null)} submit={createTask} />}
       {modal === "assignment" && <AssignmentModal clients={clientList} close={() => setModal(null)} submit={createAssignment} team={teamList} />}
       {CLIENT_WRITES_ENABLED && modal === "client" && <ClientModal close={() => setModal(null)} submit={createClient} />}
-      {modal === "team" && <TeamModal close={() => setModal(null)} submit={createMember} domain={firmProfile.emailDomain} />}
+      {TEAM_WRITES_ENABLED && modal === "team" && <TeamModal close={() => setModal(null)} submit={createMember} domain={firmProfile.emailDomain} />}
       {selectedTask && <TaskDrawer assignments={assignmentList} task={selectedTask} team={teamList} clients={clientList} user={user} close={() => setSelectedTaskId(null)} addNote={addNote} moveTask={moveTask} />}
     </main>
   );
@@ -609,6 +756,19 @@ export default function Home() {
 function SessionLoading() {
   return <main className="font-login flex min-h-screen items-center justify-center bg-[#1e1f24] p-4 text-slate-100">
     <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-200/80">Checking secure session...</p>
+  </main>;
+}
+
+// Section 14 Step 5B-3a: shown when a session exists but /api/me cannot resolve an
+// active workspace profile (or a transient identity error). Manual sign-out only;
+// never auto-signs-out or loops.
+function IdentityIssue({ error, onSignOut }: { error: ApiError | "no_profile"; onSignOut: () => void }) {
+  const message = error === "no_profile"
+    ? "No active team profile found for this account."
+    : identityErrorMessage(error);
+  return <main className="font-login flex min-h-screen flex-col items-center justify-center gap-4 bg-[#1e1f24] p-4 text-slate-100">
+    <p className="max-w-sm text-center text-sm text-slate-200">{message}</p>
+    <button className="rounded-lg bg-amber-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-amber-200" onClick={onSignOut} type="button">Sign out</button>
   </main>;
 }
 
@@ -717,17 +877,19 @@ function Header({ active, canCreateTask, exportWorkspace, firm, logout, nav, ope
   const canUsePrimaryAction = active === "firmSetup"
     ? user.platformRole === "Platform Owner"
     : active === "team"
-      ? canManageTeam
+      ? TEAM_WRITES_ENABLED && canManageTeam
       : active === "clients"
         ? CLIENT_WRITES_ENABLED && canCreateTask
         : canCreateTask;
   const disabledReason = active === "clients" && !CLIENT_WRITES_ENABLED
     ? "Client creation moves to the database in the next step (5B-2); read-only in this build"
-    : active === "team"
-      ? "Only Platform Owner and Firm Admin can add users"
-      : active === "firmSetup"
-        ? "Only Platform Owner can register additional firms"
-        : "Only Firm Admin, Partner, and Manager can create this record";
+    : active === "team" && !TEAM_WRITES_ENABLED
+      ? "Adding team members moves to the database in a later step; read-only in this build"
+      : active === "team"
+        ? "Only Platform Owner and Firm Admin can add users"
+        : active === "firmSetup"
+          ? "Only Platform Owner can register additional firms"
+          : "Only Firm Admin, Partner, and Manager can create this record";
   const actionLabel = active === "clients"
     ? "Add Client"
     : active === "team"
@@ -737,7 +899,7 @@ function Header({ active, canCreateTask, exportWorkspace, firm, logout, nav, ope
         : active === "firmSetup"
           ? "Add Firm"
           : "Create Task";
-  return <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/86 px-4 py-3 backdrop-blur md:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-blue-700">{firm.name}</p><h1 className="text-xl font-semibold text-slate-950 md:text-2xl">{title}</h1></div><div className="flex flex-wrap items-center gap-2"><span className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:inline-flex">{user.name}</span><button aria-label="Notifications prepared for reminder layer" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400" disabled title="Notifications will activate with email reminders" type="button"><Bell size={18} /></button>{nextModal ? <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" disabled={!canUsePrimaryAction} onClick={() => open(nextModal)} title={!canUsePrimaryAction ? disabledReason : undefined} type="button"><Plus size={18} />{actionLabel}</button> : <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700" disabled title={disabledReason} type="button"><Plus size={18} />{actionLabel}</button>}<button aria-label="Export workspace backup (JSON)" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={exportWorkspace} title="Download a JSON backup of this workspace" type="button"><FileDown size={18} /></button><button aria-label="Log out" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={logout} type="button"><LogOut size={18} /></button></div></div><nav className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden" aria-label="Mobile workspace navigation">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600") + " inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"} onClick={() => setActive(item.id)} type="button"><Icon size={16} />{item.label}</button>; })}</nav></header>;
+  return <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/86 px-4 py-3 backdrop-blur md:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-blue-700">{firm.name}</p><h1 className="text-xl font-semibold text-slate-950 md:text-2xl">{title}</h1></div><div className="flex flex-wrap items-center gap-2"><span className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:inline-flex">{user.name}</span><button aria-label="Notifications prepared for reminder layer" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400" disabled title="Notifications will activate with email reminders" type="button"><Bell size={18} /></button>{nextModal ? <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" disabled={!canUsePrimaryAction} onClick={canUsePrimaryAction ? () => open(nextModal) : undefined} title={!canUsePrimaryAction ? disabledReason : undefined} type="button"><Plus size={18} />{actionLabel}</button> : <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700" disabled title={disabledReason} type="button"><Plus size={18} />{actionLabel}</button>}<button aria-label="Export workspace backup (JSON)" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={exportWorkspace} title="Download a JSON backup of this workspace" type="button"><FileDown size={18} /></button><button aria-label="Log out" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={logout} type="button"><LogOut size={18} /></button></div></div><nav className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden" aria-label="Mobile workspace navigation">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600") + " inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"} onClick={() => setActive(item.id)} type="button"><Icon size={16} />{item.label}</button>; })}</nav></header>;
 }
 
 function RoleDashboardView({ assignments, clients, modules, openAssignment, openTask, setActive, tasks, team, user }: { assignments: Assignment[]; clients: Client[]; modules: ModuleFlag[]; openAssignment: () => void; openTask: (id: string) => void; setActive: (section: Section) => void; tasks: Task[]; team: TeamMember[]; user: TeamMember }) {
@@ -1156,9 +1318,9 @@ function FirmSetupView({
   </div>;
 }
 
-function TeamView({ actions, open, team, user }: { actions: MemberActions; open: () => void; team: TeamMember[]; user: TeamMember }) {
-  const canManage = user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin";
-  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><div><h2 className="font-semibold text-slate-950">Team and access</h2><p className="text-sm text-slate-500">Add users, control roles, reset passwords, and deactivate access when someone leaves.</p></div><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50" disabled={!canManage} onClick={open} title="Create an active user. The user creates a password on first sign-in." type="button">Add User</button></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{team.map((member) => <UserAccessCard key={member.id} actions={actions} currentUser={user} member={member} />)}</div></div>;
+function TeamView({ actions, open, team, user, loading, error }: { actions: MemberActions; open: () => void; team: TeamMember[]; user: TeamMember; loading: boolean; error: ApiError | null }) {
+  const canManage = (user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin") && TEAM_WRITES_ENABLED;
+  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><div><h2 className="font-semibold text-slate-950">Team and access</h2><p className="text-sm text-slate-500">Add users, control roles, reset passwords, and deactivate access when someone leaves.</p></div><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50" disabled={!canManage} onClick={open} title={TEAM_WRITES_ENABLED ? "Create an active user. The user creates a password on first sign-in." : "Team changes are not available in this build."} type="button">Add User</button></div>{loading ? <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-500 shadow-sm">Loading team...</div> : error ? <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-red-600 shadow-sm" role="alert">{teamErrorMessage(error)}</div> : team.length === 0 ? <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-500 shadow-sm">No team members found.</div> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{team.map((member) => <UserAccessCard key={member.id} actions={actions} currentUser={user} member={member} />)}</div>}</div>;
 }
 
 function UserAccessCard({ actions, currentUser, member }: { actions: MemberActions; currentUser: TeamMember; member: TeamMember }) {
@@ -1175,15 +1337,15 @@ function UserAccessCard({ actions, currentUser, member }: { actions: MemberActio
     <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
       <label className="block" title={manageable ? "Change the user's firm role." : "This user cannot be edited from your current access level."}>
         <span className="text-xs font-semibold uppercase text-slate-500">Role</span>
-        <select className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" disabled={!manageable || member.platformRole === "Platform Owner"} onChange={(event) => actions.updateRole(member.id, event.target.value as FirmRole)} value={member.firmRole}>
+        <select className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" disabled={!manageable || member.platformRole === "Platform Owner" || !TEAM_WRITES_ENABLED} onChange={(event) => actions.updateRole(member.id, event.target.value as FirmRole)} value={member.firmRole}>
           {firmRoles.map((role) => <option key={role} value={role}>{role}</option>)}
         </select>
       </label>
       <div className="pt-5 text-right text-xs text-slate-500"><UserCog className="ml-auto text-blue-600" size={18} />{roleLabel}</div>
     </div>
     <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-      <button className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45" disabled={!manageable || !member.isActive} onClick={() => actions.resetPassword(member.id)} title="Clears the saved password. The user creates a fresh password on next sign-in." type="button"><KeyRound size={14} className="inline" /> Reset password</button>
-      <button className={(member.isActive ? "border-red-200 text-red-700 hover:bg-red-50" : "border-emerald-200 text-emerald-700 hover:bg-emerald-50") + " rounded-lg border px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45"} disabled={!manageable} onClick={() => actions.setActive(member.id, !member.isActive)} title={member.isActive ? "Stop this user from signing in while keeping history intact." : "Allow this user to sign in again."} type="button">{member.isActive ? "Deactivate" : "Reactivate"}</button>
+      <button className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45" disabled={!manageable || !member.isActive || !TEAM_WRITES_ENABLED} onClick={() => actions.resetPassword(member.id)} title="Clears the saved password. The user creates a fresh password on next sign-in." type="button"><KeyRound size={14} className="inline" /> Reset password</button>
+      <button className={(member.isActive ? "border-red-200 text-red-700 hover:bg-red-50" : "border-emerald-200 text-emerald-700 hover:bg-emerald-50") + " rounded-lg border px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45"} disabled={!manageable || !TEAM_WRITES_ENABLED} onClick={() => actions.setActive(member.id, !member.isActive)} title={member.isActive ? "Stop this user from signing in while keeping history intact." : "Allow this user to sign in again."} type="button">{member.isActive ? "Deactivate" : "Reactivate"}</button>
     </div>
     <p className="mt-3 text-xs leading-5 text-slate-500">Last status: {member.lastActive}</p>
   </div>;

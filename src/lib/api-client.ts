@@ -151,11 +151,18 @@ export interface TaskDTO {
 }
 
 export interface TeamMemberDTO {
-  id: string;
+  firmMemberId: string;
+  userId: string;
   name: string;
   email: string;
   firmRole: string;
   isActive: boolean;
+  joinedAt: string;
+}
+
+export interface TeamListResult {
+  items: TeamMemberDTO[];
+  pagination: { page: number; pageSize: number; total: number };
 }
 
 // Section 14 Step 5B-3a-pre: current-user identity (GET /api/me). Minimal,
@@ -218,7 +225,9 @@ export const clientsApi = {
 };
 
 export const teamApi = {
-  list: () => apiGet<TeamMemberDTO[]>("/api/team"),
+  // GET /api/team returns { items, pagination } (3E-1). status=all includes
+  // inactive members for read-only display; pageSize within MAX_TEAM_PAGE_SIZE (200).
+  list: () => apiGet<TeamListResult>("/api/team?status=all&page=1&pageSize=200"),
   get: (id: string) => apiGet<TeamMemberDTO>(`/api/team/${id}`),
   create: (input: { name: string; email: string; firmRole: string }) =>
     apiPost<TeamMemberDTO>("/api/team", input),
