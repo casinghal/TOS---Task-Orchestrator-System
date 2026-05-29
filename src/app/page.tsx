@@ -94,10 +94,15 @@ function mapClientDtoToUi(dto: ClientDTO): Client {
   };
 }
 
-// Section 14 Step 5B-3a: team READ cutover + current-user identity from /api/me.
-// Team writes (add / role / deactivate / reactivate) and password reset remain
-// deferred - no UI-only mutation; password reset has no API. Flip in 5B-3b only.
-const TEAM_WRITES_ENABLED = false;
+// Section 14 Step 5B-3b: team WRITE cutover for add / role change / deactivate /
+// reactivate. Writes go through the existing 3E routes; the UI refetches the
+// team list on success. No optimistic UI; no client-side ActivityLog (the
+// server already writes ActivityLog rows for each write).
+const TEAM_WRITES_ENABLED = true;
+// Password reset has no backend route yet; it is explicitly deferred to 5B-3c.
+// The button stays visible-but-disabled with a 5B-3c-deferred tooltip; the
+// resetMemberPassword callback early-returns on this flag.
+const TEAM_PASSWORD_RESET_ENABLED = false;
 
 // FirmRole code (API) -> UI display string.
 function firmRoleCodeToUi(code: string): FirmRole {
@@ -107,6 +112,17 @@ function firmRoleCodeToUi(code: string): FirmRole {
     case "MANAGER": return "Manager";
     case "ARTICLE_STAFF": return "Article/Staff";
     default: return "Article/Staff";
+  }
+}
+
+// FirmRole UI display string -> API code. Section 14 Step 5B-3b: write
+// cutover converts the form value to the FirmRole enum the server expects.
+function firmRoleUiToCode(role: FirmRole): string {
+  switch (role) {
+    case "Firm Admin": return "FIRM_ADMIN";
+    case "Partner": return "PARTNER";
+    case "Manager": return "MANAGER";
+    case "Article/Staff": return "ARTICLE_STAFF";
   }
 }
 
@@ -198,6 +214,36 @@ function clientCreateErrorMessage(error: ApiError): string {
       return "Could not add the client. Please try again.";
   }
 }
+
+// Section 14 Step 5B-3b: controlled, explicit error messaging for team writes
+// (add / role change / deactivate / reactivate). Surface the server message for
+// validation/conflict so guardrails like "must keep one active FIRM_ADMIN" and
+// "cannot deactivate yourself" reach the UI verbatim. No silent failure path.
+type TeamWriteAction = "add" | "role" | "deactivate" | "reactivate";
+function teamWriteErrorMessage(action: TeamWriteAction, error: ApiError): string {
+  const verb = action === "add"
+    ? "add the team member"
+    : action === "role"
+      ? "change the role"
+      : action === "deactivate"
+        ? "deactivate the team member"
+        : "reactivate the team member";
+  switch (error.kind) {
+    case "session":
+      return "Your session has expired. Please sign in again.";
+    case "authorization":
+      return `You do not have permission to ${verb}.`;
+    case "validation":
+      return error.message || `Please check the details and try again.`;
+    case "not_found":
+      return "This team member is no longer available. The list will refresh.";
+    case "db_unavailable":
+      return "Team changes are temporarily unavailable. Please retry shortly.";
+    default:
+      return `Could not ${verb}. Please try again.`;
+  }
+}
+
 const loginTips = [
   "Create the client first, then create the task. This keeps every action traceable till closure.",
   "Use Pending Client only when the next action is genuinely with the client.",
@@ -252,6 +298,10 @@ export default function Home() {
   const [teamList, setTeamList] = useState<TeamMember[]>(seedTeam);
   const [teamLoading, setTeamLoading] = useState(true);
   const [teamError, setTeamError] = useState<ApiError | null>(null);
+  // Section 14 Step 5B-3b: write surfacing. On a write success but refetch
+  // failure, or on a non-modal write error (role change / deactivate /
+  // reactivate), set teamNotice; the TeamView panel renders it as a banner.
+  const [teamNotice, setTeamNotice] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<TeamMember | null>(null);
   const [meLoading, setMeLoading] = useState(true);
   const [identityError, setIdentityError] = useState<ApiError | "no_profile" | null>(null);
@@ -486,18 +536,32 @@ export default function Home() {
     return { ok: true };
   }
 
-  function createMember(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!TEAM_WRITES_ENABLED || !user) return;
-    const form = new FormData(event.currentTarget);
-    const name = String(form.get("name") || "").trim();
-    const email = normalizeEmail(String(form.get("email") || "").trim());
-    const firmRole = String(form.get("firmRole") || "Article/Staff") as FirmRole;
-    if (!name || !isWorkspaceEmail(email, firmProfile.emailDomain)) return;
-    const nextMember: TeamMember = { id: "u_" + Date.now(), name, email, firmRole, role: firmRole, platformRole: "Standard", lastActive: "Invited", isActive: true };
-    setTeamList((current) => [nextMember, ...current]);
-    log(user.id, "Created user", "User", name + " - " + firmRole);
-    setModal(null);
+  // Section 14 Step 5B-3b: team add writes through POST /api/team, then the
+  // list refetches from the API (source of truth). The TeamModal manages its
+  // own submit lifecycle and closes on { ok: true }. No optimistic UI; no
+  // client-side ActivityLog (server already writes TEAM_MEMBER_ADD).
+  async function createMember(values: { name: string; email: string; firmRole: FirmRole }): Promise<{ ok: boolean; message?: string }> {
+    if (!TEAM_WRITES_ENABLED) return { ok: false, message: "Team writes are not available." };
+    if (!user) return { ok: false, message: "No active session. Please sign in again." };
+    try {
+      await teamApi.create({
+        name: values.name,
+        email: normalizeEmail(values.email),
+        firmRole: firmRoleUiToCode(values.firmRole),
+      });
+    } catch (error: unknown) {
+      return { ok: false, message: error instanceof ApiError ? teamWriteErrorMessage("add", error) : "Could not add the team member. Please try again." };
+    }
+    // Refresh from the API. Do NOT retry the create if the refetch fails
+    // (avoids duplicate); surface a controlled notice instead.
+    try {
+      const result = await teamApi.list();
+      setTeamList(result.items.map(mapTeamDtoToUi));
+      setTeamNotice(null);
+    } catch {
+      setTeamNotice("Team member added, but the list could not refresh. Please reload the page.");
+    }
+    return { ok: true };
   }
 
   function createAssignment(event: FormEvent<HTMLFormElement>) {
@@ -529,33 +593,70 @@ export default function Home() {
     return Boolean(user && canManageUser(user, target));
   }
 
-  function setMemberActive(memberId: string, isActive: boolean) {
+  // Section 14 Step 5B-3b: deactivate / reactivate write through POST
+  // /api/team/[id]/deactivate or .../reactivate, then refetch. No optimistic
+  // UI. The server writes the ActivityLog row (TEAM_MEMBER_DEACTIVATE /
+  // TEAM_MEMBER_REACTIVATE) - the client does not.
+  async function setMemberActive(memberId: string, isActive: boolean): Promise<void> {
     if (!TEAM_WRITES_ENABLED || !user) return;
     const target = teamList.find((member) => member.id === memberId);
     if (!target || !canManageMember(target)) return;
-    setTeamList((current) => current.map((member) => member.id === memberId ? {
-      ...member,
-      isActive,
-      passwordDigest: isActive ? member.passwordDigest : undefined,
-      lastActive: isActive ? "Reactivated" : "Access removed",
-    } : member));
-    log(user.id, isActive ? "Reactivated user" : "Deactivated user", "User", target.name);
+    try {
+      if (isActive) {
+        // Section 14 Step 5B-3b defect fix: the server requires `reason: string`.
+        // Supply a generic default string; a structured reason input is a 5B-3b+ UX
+        // follow-up if/when product wants to capture per-toggle context.
+        await teamApi.reactivate(memberId, "Reactivated via Team UI");
+      } else {
+        await teamApi.deactivate(memberId, "Deactivated via Team UI");
+      }
+    } catch (error: unknown) {
+      setTeamNotice(error instanceof ApiError
+        ? teamWriteErrorMessage(isActive ? "reactivate" : "deactivate", error)
+        : `Could not ${isActive ? "reactivate" : "deactivate"} the team member. Please try again.`);
+      return;
+    }
+    try {
+      const result = await teamApi.list();
+      setTeamList(result.items.map(mapTeamDtoToUi));
+      setTeamNotice(null);
+    } catch {
+      setTeamNotice(`Team member ${isActive ? "reactivated" : "deactivated"}, but the list could not refresh. Please reload the page.`);
+    }
   }
 
+  // Section 14 Step 5B-3b: password reset is explicitly deferred to 5B-3c
+  // (no backend route exists yet). The button stays visible-but-disabled in
+  // the UI; this callback early-returns so even an accidental call is a no-op.
   function resetMemberPassword(memberId: string) {
-    if (!TEAM_WRITES_ENABLED || !user) return;
+    if (!TEAM_PASSWORD_RESET_ENABLED || !user) return;
     const target = teamList.find((member) => member.id === memberId);
     if (!target || !canManageMember(target)) return;
-    setTeamList((current) => current.map((member) => member.id === memberId ? { ...member, passwordDigest: undefined, lastActive: "Password reset" } : member));
-    log(user.id, "Reset user password", "User", target.name);
+    // Intentionally no-op: 5B-3c wires the API and restores the call path.
   }
 
-  function updateMemberRole(memberId: string, firmRole: FirmRole) {
+  // Section 14 Step 5B-3b: role change writes through PATCH /api/team/[id]
+  // with the API-shape firmRole code, then refetches. The controlled <select>
+  // is bound to member.firmRole so a failed write snaps the visual back to the
+  // server-confirmed value without an explicit revert. The server writes the
+  // ActivityLog row (TEAM_MEMBER_ROLE_CHANGE) - the client does not.
+  async function updateMemberRole(memberId: string, firmRole: FirmRole): Promise<void> {
     if (!TEAM_WRITES_ENABLED || !user) return;
     const target = teamList.find((member) => member.id === memberId);
     if (!target || !canManageMember(target)) return;
-    setTeamList((current) => current.map((member) => member.id === memberId ? { ...member, firmRole, role: firmRole } : member));
-    log(user.id, "Changed user role", "User", `${target.name} - ${firmRole}`);
+    try {
+      await teamApi.update(memberId, { firmRole: firmRoleUiToCode(firmRole) });
+    } catch (error: unknown) {
+      setTeamNotice(error instanceof ApiError ? teamWriteErrorMessage("role", error) : "Could not change the role. Please try again.");
+      return;
+    }
+    try {
+      const result = await teamApi.list();
+      setTeamList(result.items.map(mapTeamDtoToUi));
+      setTeamNotice(null);
+    } catch {
+      setTeamNotice("Role updated, but the list could not refresh. Please reload the page.");
+    }
   }
 
   function addNote(taskId: string, text: string) {
@@ -730,7 +831,7 @@ export default function Home() {
             {currentSection === "assignments" && <AssignmentsView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openClient={CLIENT_WRITES_ENABLED ? () => setModal("client") : () => {}} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
             {currentSection === "projectReview" && <ProjectReviewView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
             {currentSection === "clients" && <ClientsView assignments={assignmentList} clients={clientList} tasks={taskList} loading={clientsLoading} error={clientsError} notice={clientsNotice} open={CLIENT_WRITES_ENABLED ? () => setModal("client") : () => {}} />}
-            {currentSection === "team" && <TeamView actions={memberActions} team={teamList} user={user} open={TEAM_WRITES_ENABLED ? () => setModal("team") : () => {}} loading={teamLoading} error={teamError} />}
+            {currentSection === "team" && <TeamView actions={memberActions} team={teamList} user={user} open={TEAM_WRITES_ENABLED ? () => setModal("team") : () => {}} loading={teamLoading} error={teamError} notice={teamNotice} />}
             {currentSection === "reports" && <ReportsView tasks={taskList} clients={clientList} team={teamList} />}
             {currentSection === "firmSetup" && <FirmSetupView
               canCreateFirm={user.platformRole === "Platform Owner"}
@@ -747,7 +848,7 @@ export default function Home() {
       {modal === "task" && <TaskModal assignments={assignmentList} clients={clientList} team={teamList} close={() => setModal(null)} submit={createTask} />}
       {modal === "assignment" && <AssignmentModal clients={clientList} close={() => setModal(null)} submit={createAssignment} team={teamList} />}
       {CLIENT_WRITES_ENABLED && modal === "client" && <ClientModal close={() => setModal(null)} submit={createClient} />}
-      {TEAM_WRITES_ENABLED && modal === "team" && <TeamModal close={() => setModal(null)} submit={createMember} domain={firmProfile.emailDomain} />}
+      {TEAM_WRITES_ENABLED && modal === "team" && <TeamModal close={() => setModal(null)} submit={createMember} />}
       {selectedTask && <TaskDrawer assignments={assignmentList} task={selectedTask} team={teamList} clients={clientList} user={user} close={() => setSelectedTaskId(null)} addNote={addNote} moveTask={moveTask} />}
     </main>
   );
@@ -1318,9 +1419,9 @@ function FirmSetupView({
   </div>;
 }
 
-function TeamView({ actions, open, team, user, loading, error }: { actions: MemberActions; open: () => void; team: TeamMember[]; user: TeamMember; loading: boolean; error: ApiError | null }) {
+function TeamView({ actions, open, team, user, loading, error, notice }: { actions: MemberActions; open: () => void; team: TeamMember[]; user: TeamMember; loading: boolean; error: ApiError | null; notice: string | null }) {
   const canManage = (user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin") && TEAM_WRITES_ENABLED;
-  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><div><h2 className="font-semibold text-slate-950">Team and access</h2><p className="text-sm text-slate-500">Add users, control roles, reset passwords, and deactivate access when someone leaves.</p></div><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50" disabled={!canManage} onClick={open} title={TEAM_WRITES_ENABLED ? "Create an active user. The user creates a password on first sign-in." : "Team changes are not available in this build."} type="button">Add User</button></div>{loading ? <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-500 shadow-sm">Loading team...</div> : error ? <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-red-600 shadow-sm" role="alert">{teamErrorMessage(error)}</div> : team.length === 0 ? <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-500 shadow-sm">No team members found.</div> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{team.map((member) => <UserAccessCard key={member.id} actions={actions} currentUser={user} member={member} />)}</div>}</div>;
+  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><div><h2 className="font-semibold text-slate-950">Team and access</h2><p className="text-sm text-slate-500">Add users, control roles, reset passwords, and deactivate access when someone leaves.</p></div><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50" disabled={!canManage} onClick={open} title={TEAM_WRITES_ENABLED ? "Create an active user. The user creates a password on first sign-in." : "Team changes are not available in this build."} type="button">Add User</button></div>{notice && <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 shadow-sm" role="status">{notice}</div>}{loading ? <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-500 shadow-sm">Loading team...</div> : error ? <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-red-600 shadow-sm" role="alert">{teamErrorMessage(error)}</div> : team.length === 0 ? <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-500 shadow-sm">No team members found.</div> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{team.map((member) => <UserAccessCard key={member.id} actions={actions} currentUser={user} member={member} />)}</div>}</div>;
 }
 
 function UserAccessCard({ actions, currentUser, member }: { actions: MemberActions; currentUser: TeamMember; member: TeamMember }) {
@@ -1344,7 +1445,7 @@ function UserAccessCard({ actions, currentUser, member }: { actions: MemberActio
       <div className="pt-5 text-right text-xs text-slate-500"><UserCog className="ml-auto text-blue-600" size={18} />{roleLabel}</div>
     </div>
     <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-      <button className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45" disabled={!manageable || !member.isActive || !TEAM_WRITES_ENABLED} onClick={() => actions.resetPassword(member.id)} title="Clears the saved password. The user creates a fresh password on next sign-in." type="button"><KeyRound size={14} className="inline" /> Reset password</button>
+      <button className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45" disabled={!manageable || !member.isActive || !TEAM_PASSWORD_RESET_ENABLED} onClick={() => actions.resetPassword(member.id)} title={TEAM_PASSWORD_RESET_ENABLED ? "Clears the saved password. The user creates a fresh password on next sign-in." : "Password reset moves to the database in the next step (5B-3c); read-only in this build."} type="button"><KeyRound size={14} className="inline" /> Reset password</button>
       <button className={(member.isActive ? "border-red-200 text-red-700 hover:bg-red-50" : "border-emerald-200 text-emerald-700 hover:bg-emerald-50") + " rounded-lg border px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45"} disabled={!manageable || !TEAM_WRITES_ENABLED} onClick={() => actions.setActive(member.id, !member.isActive)} title={member.isActive ? "Stop this user from signing in while keeping history intact." : "Allow this user to sign in again."} type="button">{member.isActive ? "Deactivate" : "Reactivate"}</button>
     </div>
     <p className="mt-3 text-xs leading-5 text-slate-500">Last status: {member.lastActive}</p>
@@ -1634,8 +1735,48 @@ function ClientModal({ close, submit }: { close: () => void; submit: (values: { 
   return <ModalFrame title="Add client" subtitle="Only client name is compulsory." close={close}><form className="space-y-4" noValidate onSubmit={onSubmit}><Field label="Client name" name="name" required /><div className="grid gap-4 md:grid-cols-2"><Field label="PAN" name="pan" /><Field label="GSTIN" name="gstin" /><Field label="Email" name="email" type="email" /><Field label="Mobile/contact" name="mobile" /></div>{error && <div className="rounded-lg border border-red-300/50 bg-red-50 p-3 text-sm text-red-700" role="alert">{error}</div>}<Actions close={close} disabled={isSubmitting} label={isSubmitting ? "Adding..." : "Add Client"} /></form></ModalFrame>;
 }
 
-function TeamModal({ close, domain, submit }: { close: () => void; domain: string; submit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <ModalFrame title="Add team member" subtitle="Use an official work email. Password is created by the user on first sign-in." close={close}><form className="space-y-4" onSubmit={submit}><Field label="Name" name="name" required /><Field label="Work email" name="email" pattern={domain ? `^[^\\s@]+@${domain.replace(".", "\\.")}$` : undefined} placeholder={domain ? `name@${domain}` : "name@yourfirm.com"} required type="email" /><Select label="Role" name="firmRole"><option>Firm Admin</option><option>Partner</option><option>Manager</option><option>Article/Staff</option></Select><Actions close={close} label="Add User" /></form></ModalFrame>;
+function TeamModal({ close, submit }: { close: () => void; submit: (values: { name: string; email: string; firmRole: FirmRole }) => Promise<{ ok: boolean; message?: string }> }) {
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSubmitting) return;
+    const form = new FormData(event.currentTarget);
+    const name = String(form.get("name") || "").trim();
+    const email = String(form.get("email") || "").trim();
+    const firmRole = String(form.get("firmRole") || "Article/Staff") as FirmRole;
+    if (!name) {
+      setError("Name is required.");
+      return;
+    }
+    // Mirror the server CreateTeamMemberSchema email regex client-side so an
+    // invalid entry surfaces a specific message and the API call is skipped.
+    // Domain enforcement (matching the firm emailDomain) remains server-side
+    // and surfaces verbatim if it rejects.
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("Invalid email address.");
+      return;
+    }
+    setError("");
+    setIsSubmitting(true);
+    let result: { ok: boolean; message?: string };
+    try {
+      result = await submit({ name, email, firmRole });
+    } catch {
+      setError("Could not add the team member. Please try again.");
+      setIsSubmitting(false);
+      return;
+    }
+    if (result.ok) {
+      close();
+      return;
+    }
+    setError(result.message ?? "Could not add the team member.");
+    setIsSubmitting(false);
+  }
+
+  return <ModalFrame title="Add team member" subtitle="Use an official work email. Password is created by the user on first sign-in." close={close}><form className="space-y-4" noValidate onSubmit={onSubmit}><Field label="Name" name="name" required /><Field label="Work email" name="email" placeholder="name@yourfirm.com" required type="email" /><Select label="Role" name="firmRole"><option>Firm Admin</option><option>Partner</option><option>Manager</option><option>Article/Staff</option></Select>{error && <div className="rounded-lg border border-red-300/50 bg-red-50 p-3 text-sm text-red-700" role="alert">{error}</div>}<Actions close={close} disabled={isSubmitting} label={isSubmitting ? "Adding..." : "Add User"} /></form></ModalFrame>;
 }
 
 function TaskDrawer({ addNote, assignments, clients, close, moveTask, task, team, user }: { addNote: (taskId: string, note: string) => void; assignments: Assignment[]; clients: Client[]; close: () => void; moveTask: (taskId: string, status: TaskStatus, remarks?: string) => void; task: Task; team: TeamMember[]; user: TeamMember }) {

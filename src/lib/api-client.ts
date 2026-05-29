@@ -233,9 +233,15 @@ export const teamApi = {
     apiPost<TeamMemberDTO>("/api/team", input),
   update: (id: string, input: Partial<{ firmRole: string }>) =>
     apiPatch<TeamMemberDTO>(`/api/team/${id}`, input),
-  deactivate: (id: string, reason?: string) =>
-    apiPost<TeamMemberDTO>(`/api/team/${id}/deactivate`, reason ? { reason } : undefined),
-  reactivate: (id: string) => apiPost<TeamMemberDTO>(`/api/team/${id}/reactivate`),
+  // Section 14 Step 5B-3b defect fix: the server schemas at
+  // /api/team/[id]/deactivate and /api/team/[id]/reactivate Zod-validate the
+  // request body as `{ reason: string }` (required). The wrappers therefore
+  // require a `reason` argument and always send a JSON body. No-body POST
+  // previously caused 400 "Invalid JSON payload." in 5B-3b UAT.
+  deactivate: (id: string, reason: string) =>
+    apiPost<TeamMemberDTO>(`/api/team/${id}/deactivate`, { reason }),
+  reactivate: (id: string, reason: string) =>
+    apiPost<TeamMemberDTO>(`/api/team/${id}/reactivate`, { reason }),
 };
 
 // Section 14 Step 5B-3a-pre: current-user identity (server-authoritative).
