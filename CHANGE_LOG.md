@@ -1652,3 +1652,24 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Status**: 5B-STAB read-only verification PASS (zero must-fix). After this documentation sync, 5B-STAB is closed and **5B-4 (tasks cutover) may begin plan-first only after this 5B-STAB doc-sync is committed, pushed, and reviewed**.
 
 ---
+
+## C-2026-06-06-03 - Section 14 Step 5B-4a tasks READ cutover: documentation sync (code, deploy, localhost read-only UAT, production smoke)
+
+- **Date**: 2026-06-06
+- **Task**: Record Section 14 Step 5B-4a, the first sub-wave of the tasks cutover. The UI task list now reads from `GET /api/tasks` (API source of truth, read-only). All task write actions remain UI-disabled behind `TASK_WRITES_ENABLED = false` (create/move/notes/assignees/reviewer/resequence cut over in 5B-4b–e). No backend route / schema / migration / Auth / env / package change.
+- **Source commit**: `afef3e5` (`Section 14 Step 5B-4a: Cut over task reads`). Netlify production deploy for `afef3e5` confirmed green/published. Runtime/code SHA advances `51ad699` -> `afef3e5`.
+- **Code changed (in `afef3e5`, three files; Windows diff stat 137 insertions / 19 deletions)**:
+  - `src/lib/workspace-data.ts` - UI `TaskStatus` union += `"Cancelled"`; `Task.priority` += `"Critical"` (faithful representation of the richer server vocabulary; Option A, ChatGPT-approved).
+  - `src/lib/api-client.ts` - fixed `tasksApi.list()` response shape to `{ items, pagination }` (added `TaskListResult`; `GET /api/tasks?page=1&pageSize=200`); extended `TaskDTO` with `assignees: { userId }[]`, `closureRemarks`, `closedAt`.
+  - `src/app/page.tsx` - added `mapTaskDtoToUi` with faithful code->label maps (status 7->7 incl. CANCELLED->Cancelled; priority 4->4 incl. CRITICAL->Critical; unknown -> warn + Open/Normal); extended `statusTone`/`priorityTone`; `TASK_WRITES_ENABLED = false`; new `tasksLoading`/`tasksError` state + `GET /api/tasks` loader (controlled error; no seed/localStorage fallback); tasks removed from localStorage hydration + persist (pre-cutover cache left inert); tasks section renders loading/error/empty states; all six task write callbacks early-return on the flag; write controls disabled (Create Task, reassign/reviewer selects, resequence buttons, TaskDrawer controls, create-modal mount). `assignmentId`/`sequence` left undefined (no API source; no crash); list `notes = []` (per-task notes are 5B-4d).
+- **Validation**: Windows `npm run uat:check` passed (eslint + prisma validate + next build). Only the three approved files modified.
+- **Localhost read-only UAT (CDP, empty-state; DB `firm_primary` task count = 0)**: origin guard `http://localhost:3000`; signed-out `GET /api/tasks` (cookie-omit) = 401; signed-in `GET /api/tasks` = 200 `{ items, pagination }` with `items` empty; UI rendered a clean empty task state; **Create Task disabled**; no localStorage task fallback (`practiceiq-live-v1.tasks` absent); no POST/PATCH/DELETE; no test data; no Supabase mutation. The only console error was the expected signed-out cookie-omit test fetch (401), not an app defect.
+- **Accepted caveats**: per-task write controls (status/move, note, reassign, reviewer, resequence) could not be visually verified because there are zero task rows; code gating passed `uat:check`, and full per-control visual UAT will require test task data in a later write wave. The disabled Create Task tooltip still shows the role-based copy (cosmetic; deferred).
+- **Production safe smoke (signed-out)**: `GET /api/tasks` = 401. No production task mutation run.
+- **Files changed (this documentation-only wave)**: `CHANGE_LOG.md` (this entry); `CURRENT_STATUS.md`; `MASTER_PROJECT.md`.
+- **Reason**: per Synchronization Rule #8, `afef3e5` is runtime-bearing; this wave advances the SHA marker and records 5B-4a closure.
+- **Out of scope (intentional)**: no source/route/schema/migration/package/env/config change in this doc wave; no Netlify/Supabase change; no `AGENTS.md` / `DECISION_LOG.md` change; no 5B-4b work; task writes remain parked; no staging/commit/push in this wave.
+- **Testing required**: none beyond doc review. Code validated via Windows `npm run uat:check`, the localhost read-only UAT, and the production safe smoke above.
+- **Status**: 5B-4a code completed, deployed, and verified at `afef3e5`. After this documentation sync, 5B-4a is closed and **5B-4b (task create cutover) may begin plan-first only after this 5B-4a doc-sync is committed, pushed, and reviewed**.
+
+---
