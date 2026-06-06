@@ -242,6 +242,12 @@ export const teamApi = {
     apiPost<TeamMemberDTO>(`/api/team/${id}/deactivate`, { reason }),
   reactivate: (id: string, reason: string) =>
     apiPost<TeamMemberDTO>(`/api/team/${id}/reactivate`, { reason }),
+  // Section 14 Step 5B-3c-2: trigger an email-based password reset for a team
+  // member. Backend POST /api/team/[id]/password-reset Zod-requires a non-empty
+  // { reason } body and returns { sent: true }. Recovery email only (Option A);
+  // no service-role, no admin auth APIs.
+  resetPassword: (id: string, reason: string) =>
+    apiPost<{ sent: boolean }>(`/api/team/${id}/password-reset`, { reason }),
 };
 
 // Section 14 Step 5B-3a-pre: current-user identity (server-authoritative).

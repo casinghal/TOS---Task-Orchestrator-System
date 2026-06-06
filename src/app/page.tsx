@@ -60,6 +60,7 @@ type ViewMode = "list" | "kanban";
 type Modal = "task" | "assignment" | "client" | "team" | null;
 type MemberActions = {
   resetPassword: (memberId: string) => void;
+  resettingId: string | null;
   setActive: (memberId: string, isActive: boolean) => void;
   updateRole: (memberId: string, firmRole: FirmRole) => void;
 };
@@ -99,10 +100,10 @@ function mapClientDtoToUi(dto: ClientDTO): Client {
 // team list on success. No optimistic UI; no client-side ActivityLog (the
 // server already writes ActivityLog rows for each write).
 const TEAM_WRITES_ENABLED = true;
-// Password reset has no backend route yet; it is explicitly deferred to 5B-3c.
-// The button stays visible-but-disabled with a 5B-3c-deferred tooltip; the
-// resetMemberPassword callback early-returns on this flag.
-const TEAM_PASSWORD_RESET_ENABLED = false;
+// Section 14 Step 5B-3c-2: the backend route (POST /api/team/[id]/password-reset)
+// and the recovery page shipped in 5B-3c-1; this flag now enables the Team UI
+// reset button and the wired resetMemberPassword call path.
+const TEAM_PASSWORD_RESET_ENABLED = true;
 
 // FirmRole code (API) -> UI display string.
 function firmRoleCodeToUi(code: string): FirmRole {
@@ -219,8 +220,31 @@ function clientCreateErrorMessage(error: ApiError): string {
 // (add / role change / deactivate / reactivate). Surface the server message for
 // validation/conflict so guardrails like "must keep one active FIRM_ADMIN" and
 // "cannot deactivate yourself" reach the UI verbatim. No silent failure path.
-type TeamWriteAction = "add" | "role" | "deactivate" | "reactivate";
+type TeamWriteAction = "add" | "role" | "deactivate" | "reactivate" | "reset";
 function teamWriteErrorMessage(action: TeamWriteAction, error: ApiError): string {
+  // Section 14 Step 5B-3c-2: reset-specific messaging. Self-reset and
+  // Platform-Owner-target are both backend 403s (authorization); distinguish by
+  // the server message text. Inactive target is a 422 (validation).
+  if (action === "reset") {
+    switch (error.kind) {
+      case "session":
+        return "Your session has expired. Please sign in again.";
+      case "authorization":
+        return error.message && error.message.toLowerCase().includes("platform owner")
+          ? "Platform Owner passwords are managed separately."
+          : error.message && error.message.toLowerCase().includes("own password")
+            ? "You can't reset your own password here."
+            : "You do not have permission to reset this member's password.";
+      case "validation":
+        return "Reactivate this member before resetting their password.";
+      case "not_found":
+        return "This team member is no longer available. The list will refresh.";
+      case "db_unavailable":
+        return "Reset service temporarily unavailable. Try again shortly.";
+      default:
+        return "Could not send the password-reset email. Please try again.";
+    }
+  }
   const verb = action === "add"
     ? "add the team member"
     : action === "role"
@@ -302,6 +326,9 @@ export default function Home() {
   // failure, or on a non-modal write error (role change / deactivate /
   // reactivate), set teamNotice; the TeamView panel renders it as a banner.
   const [teamNotice, setTeamNotice] = useState<string | null>(null);
+  // Section 14 Step 5B-3c-2: id of the member whose password reset is in-flight;
+  // disables that row's button and shows "Sending…" to prevent duplicate sends.
+  const [resettingMemberId, setResettingMemberId] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<TeamMember | null>(null);
   const [meLoading, setMeLoading] = useState(true);
   const [identityError, setIdentityError] = useState<ApiError | "no_profile" | null>(null);
@@ -625,14 +652,27 @@ export default function Home() {
     }
   }
 
-  // Section 14 Step 5B-3b: password reset is explicitly deferred to 5B-3c
-  // (no backend route exists yet). The button stays visible-but-disabled in
-  // the UI; this callback early-returns so even an accidental call is a no-op.
-  function resetMemberPassword(memberId: string) {
+  // Section 14 Step 5B-3c-2: trigger an email-based password reset for a team
+  // member via POST /api/team/[id]/password-reset (static reason). The in-flight
+  // guard prevents duplicate sends; no team-list refetch (reset does not mutate
+  // member rows). Self-reset and Platform-Owner-target are enforced by the
+  // backend (403) and surfaced via teamWriteErrorMessage("reset", ...).
+  async function resetMemberPassword(memberId: string) {
     if (!TEAM_PASSWORD_RESET_ENABLED || !user) return;
+    if (resettingMemberId) return;
     const target = teamList.find((member) => member.id === memberId);
     if (!target || !canManageMember(target)) return;
-    // Intentionally no-op: 5B-3c wires the API and restores the call path.
+    setResettingMemberId(memberId);
+    try {
+      await teamApi.resetPassword(memberId, "Password reset via Team UI");
+      setTeamNotice("Password-reset email sent to this team member.");
+    } catch (error: unknown) {
+      setTeamNotice(error instanceof ApiError
+        ? teamWriteErrorMessage("reset", error)
+        : "Could not send the password-reset email. Please try again.");
+    } finally {
+      setResettingMemberId(null);
+    }
   }
 
   // Section 14 Step 5B-3b: role change writes through PATCH /api/team/[id]
@@ -815,7 +855,7 @@ export default function Home() {
     return <LoginScreen onLogin={login} />;
   }
 
-  const memberActions: MemberActions = { resetPassword: resetMemberPassword, setActive: setMemberActive, updateRole: updateMemberRole };
+  const memberActions: MemberActions = { resetPassword: resetMemberPassword, resettingId: resettingMemberId, setActive: setMemberActive, updateRole: updateMemberRole };
   const workMapActions: WorkMapActions = { reassignTask, resequenceTask, updateReviewer };
 
   return (
@@ -1445,7 +1485,7 @@ function UserAccessCard({ actions, currentUser, member }: { actions: MemberActio
       <div className="pt-5 text-right text-xs text-slate-500"><UserCog className="ml-auto text-blue-600" size={18} />{roleLabel}</div>
     </div>
     <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-      <button className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45" disabled={!manageable || !member.isActive || !TEAM_PASSWORD_RESET_ENABLED} onClick={() => actions.resetPassword(member.id)} title={TEAM_PASSWORD_RESET_ENABLED ? "Clears the saved password. The user creates a fresh password on next sign-in." : "Password reset moves to the database in the next step (5B-3c); read-only in this build."} type="button"><KeyRound size={14} className="inline" /> Reset password</button>
+      <button className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45" disabled={!manageable || !member.isActive || !TEAM_PASSWORD_RESET_ENABLED || actions.resettingId === member.id} onClick={() => actions.resetPassword(member.id)} title={TEAM_PASSWORD_RESET_ENABLED ? "Send this user a password-reset email. They set a new password via the secure link." : "Password reset moves to the database in the next step (5B-3c); read-only in this build."} type="button"><KeyRound size={14} className="inline" /> {actions.resettingId === member.id ? "Sending…" : "Reset password"}</button>
       <button className={(member.isActive ? "border-red-200 text-red-700 hover:bg-red-50" : "border-emerald-200 text-emerald-700 hover:bg-emerald-50") + " rounded-lg border px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45"} disabled={!manageable || !TEAM_WRITES_ENABLED} onClick={() => actions.setActive(member.id, !member.isActive)} title={member.isActive ? "Stop this user from signing in while keeping history intact." : "Allow this user to sign in again."} type="button">{member.isActive ? "Deactivate" : "Reactivate"}</button>
     </div>
     <p className="mt-3 text-xs leading-5 text-slate-500">Last status: {member.lastActive}</p>
