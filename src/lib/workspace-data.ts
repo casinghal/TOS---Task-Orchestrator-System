@@ -12,6 +12,10 @@ export type PlatformRole = "Platform Owner" | "Standard";
 
 export type TeamMember = {
   id: string;
+  // Section 14 Step 5B-4b: PlatformUser userId. `id` stays firmMemberId (team-management
+  // routes/actions use it); `userId` is used for task reviewer/assignee comparisons and
+  // the task create payload. Optional so seed literals remain valid.
+  userId?: string;
   name: string;
   email: string;
   passwordDigest?: string;
