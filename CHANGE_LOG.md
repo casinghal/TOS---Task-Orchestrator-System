@@ -1632,3 +1632,23 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Status**: 5B-3c-2 code completed, deployed, and verified at `51ad699`. After this documentation sync, Section 14 Step 5B-3c (team password reset: backend + UI) is fully closed. **Next mandatory gate: 5B-STAB (stabilization) before 5B-4 (tasks).**
 
 ---
+
+## C-2026-06-06-02 - Section 14 Step 5B-STAB stabilization: read-only verification + risk disposition (documentation only)
+
+- **Date**: 2026-06-06
+- **Task**: Record the mandatory 5B-STAB stabilization gate before 5B-4 (tasks). Read-only verification across the closed 5B surface (auth/session, `/api/me`, clients read+write, team read+write, team password reset backend+UI, RBAC, tenant isolation, ActivityLog/auditability, localStorage↔API boundary, production lock, data hygiene). No code/schema/env change; no mutations.
+- **Context commits**: repo/main before this doc-sync = `90166f4` (the C-2026-06-06-01 5B-3c-2 doc-sync). **Runtime/code SHA unchanged at `51ad699`** — 5B-STAB is read-only; this wave advances repository/main HEAD only, not the runtime/code marker (per Synchronization Rule #8).
+- **Verification performed (all read-only)**:
+  - **Code scan**: no `SUPABASE_SERVICE_ROLE_KEY` / `auth.admin.` usage (grep returns comment lines only — "is NOT used here" in `api-helpers.ts` + `supabase-server.ts`); auth + RBAC + cross-firm + audit wiring present across all API route files (`requireAuth`/`requireSession`/`requirePermission`/`resolveCrossFirmContext`/`writeActivityLog`); `requireSession()` fail-closed (anon-key only, `getUser()` JWT revalidation, single active FirmMember required incl. PLATFORM_OWNER, client firmId never trusted); password-reset route guards (self/PO/inactive/cross-firm) intact; localStorage source-of-truth boundary confirmed (clients + team excluded from hydration/persist; tasks/activity/modules/firm-profile still local).
+  - **Windows**: `git log -1` = `90166f4`; `git status` shows only the known mangled untracked WIP path; `npm run uat:check` passed (after clearing a local `.next`/dev-server lock); service-role/admin grep = comments only, no usage.
+  - **Supabase SELECT-only**: baseline `firm_primary`/`pu_owner`/`fm_owner` = 1/1/1; owner active membership = 1; test-data residue = 0 (`pu_zz%`/`fm_zz%`/`ZZ_TEST%`/`zz.test%`/`@example.com`); ActivityLog sanity acceptable (`TEAM_MEMBER_PASSWORD_RESET` = 4, `CLIENT_CREATE` = 1 — retained UAT audit rows).
+  - **Production GET-only smoke (signed-out)**: `/` = 200, `/auth/reset-password` = 200, `/api/me` = 401, `/api/team` = 401, `/api/clients` = 401, `/api/team/smoke-nonexistent-id/password-reset` = 405.
+- **Safety**: no mutations run; no POST/PATCH/DELETE; no new UAT/test data created; no production reset email triggered; no Supabase/Netlify/env/schema/package/config change.
+- **Findings — MUST-FIX before 5B-4: NONE.**
+- **Findings — DOCUMENT/DEFER (carried debt, not blockers)**: ActivityLog fail-open behaviour (monitor `writeActivityLog failed`); Supabase built-in email delivery/rate-limit; 5B-3c-1 reset-link password-rotation caveat (Auth test user recreated); localStorage `emailDomain` legacy login gate; UI `member.platformRole` placeholder (backend-authoritative); non-cutover localStorage domains (tasks/activity/modules); RLS + automated tests + custom SMTP deferred to pre-pilot; sandbox/OneDrive git unreliability (Windows authoritative, named-file staging).
+- **Files changed (this documentation-only wave)**: `CHANGE_LOG.md` (this entry); `CURRENT_STATUS.md`; `MASTER_PROJECT.md`.
+- **Out of scope (intentional)**: no source/route/schema/migration/package/env/config change; no Netlify/Supabase change; no `AGENTS.md` / `DECISION_LOG.md` change; no 5B-4 work; no staging/commit/push in this wave.
+- **Testing required**: none beyond doc review (read-only verification recorded above). No runtime/code change; runtime/code SHA remains `51ad699`.
+- **Status**: 5B-STAB read-only verification PASS (zero must-fix). After this documentation sync, 5B-STAB is closed and **5B-4 (tasks cutover) may begin plan-first only after this 5B-STAB doc-sync is committed, pushed, and reviewed**.
+
+---
