@@ -4,7 +4,8 @@ export type TaskStatus =
   | "Pending Client"
   | "Pending Internal"
   | "Under Review"
-  | "Closed";
+  | "Closed"
+  | "Cancelled";
 
 export type FirmRole = "Firm Admin" | "Partner" | "Manager" | "Article/Staff";
 export type PlatformRole = "Platform Owner" | "Standard";
@@ -59,7 +60,7 @@ export type Task = {
   assignmentId?: string;
   dueDate: string;
   status: TaskStatus;
-  priority: "Low" | "Normal" | "High" | "Urgent";
+  priority: "Low" | "Normal" | "High" | "Urgent" | "Critical";
   assigneeIds: string[];
   reviewerId: string;
   createdById: string;

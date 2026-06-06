@@ -146,6 +146,9 @@ export interface TaskDTO {
   reviewerId: string;
   createdById: string;
   closedById: string | null;
+  closureRemarks: string | null;
+  closedAt: string | null;
+  assignees: { userId: string }[];
   createdAt: string;
   updatedAt: string;
 }
@@ -258,8 +261,15 @@ export const meApi = {
   get: () => apiGet<MeDTO>("/api/me"),
 };
 
+export interface TaskListResult {
+  items: TaskDTO[];
+  pagination: { page: number; pageSize: number; total: number };
+}
+
 export const tasksApi = {
-  list: () => apiGet<TaskDTO[]>("/api/tasks"),
+  // Section 14 Step 5B-4a: GET /api/tasks returns { items, pagination } (3D-1);
+  // pageSize within MAX_TASK_PAGE_SIZE (200).
+  list: () => apiGet<TaskListResult>("/api/tasks?page=1&pageSize=200"),
   get: (id: string) => apiGet<TaskDTO>(`/api/tasks/${id}`),
   create: (input: {
     clientId: string;

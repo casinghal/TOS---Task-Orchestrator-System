@@ -53,7 +53,7 @@ import {
   type TeamMember,
 } from "@/lib/workspace-data";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
-import { clientsApi, teamApi, meApi, ApiError, type ClientDTO, type TeamMemberDTO, type MeDTO } from "@/lib/api-client";
+import { clientsApi, teamApi, meApi, tasksApi, ApiError, type ClientDTO, type TeamMemberDTO, type MeDTO, type TaskDTO } from "@/lib/api-client";
 
 type Section = "dashboard" | "tasks" | "assignments" | "projectReview" | "clients" | "team" | "reports" | "firmSetup" | "admin";
 type ViewMode = "list" | "kanban";
@@ -105,6 +105,11 @@ const TEAM_WRITES_ENABLED = true;
 // reset button and the wired resetMemberPassword call path.
 const TEAM_PASSWORD_RESET_ENABLED = true;
 
+// Section 14 Step 5B-4a: tasks READ cutover only. Task writes stay UI-disabled
+// behind this flag (every task write callback early-returns + controls disabled).
+// Create / move / notes / assignees / reviewer / resequence cut over in 5B-4b–d.
+const TASK_WRITES_ENABLED = false;
+
 // FirmRole code (API) -> UI display string.
 function firmRoleCodeToUi(code: string): FirmRole {
   switch (code) {
@@ -146,6 +151,67 @@ function mapTeamDtoToUi(dto: TeamMemberDTO): TeamMember {
     platformRole: "Standard",
     lastActive: dto.isActive ? "Active" : "Inactive",
     isActive: dto.isActive,
+  };
+}
+
+// Section 14 Step 5B-4a: task status/priority code -> UI label maps. Faithful to
+// the server vocabulary (workspace-data unions were extended with "Cancelled" /
+// "Critical"). Unknown codes fall back safely (warn + Open / Normal).
+const TASK_STATUS_CODE_TO_UI: Record<string, TaskStatus> = {
+  OPEN: "Open",
+  IN_PROGRESS: "In Progress",
+  PENDING_CLIENT: "Pending Client",
+  PENDING_INTERNAL: "Pending Internal",
+  UNDER_REVIEW: "Under Review",
+  CLOSED: "Closed",
+  CANCELLED: "Cancelled",
+};
+
+const TASK_PRIORITY_CODE_TO_UI: Record<string, Task["priority"]> = {
+  LOW: "Low",
+  NORMAL: "Normal",
+  HIGH: "High",
+  CRITICAL: "Critical",
+};
+
+function taskStatusCodeToUi(code: string): TaskStatus {
+  const mapped = TASK_STATUS_CODE_TO_UI[code];
+  if (!mapped) {
+    console.warn("Unknown task status code from API; defaulting to Open:", code);
+    return "Open";
+  }
+  return mapped;
+}
+
+function taskPriorityCodeToUi(code: string): Task["priority"] {
+  const mapped = TASK_PRIORITY_CODE_TO_UI[code];
+  if (!mapped) {
+    console.warn("Unknown task priority code from API; defaulting to Normal:", code);
+    return "Normal";
+  }
+  return mapped;
+}
+
+// Maps an API task (GET /api/tasks) to the UI Task shape. assignmentId has no API
+// source (left undefined; grouping views handle that safely); notes are not in the
+// list response (set [] in 5B-4a; per-task notes load in 5B-4d); sequence has no
+// API source (display order follows the server's createdAt desc).
+function mapTaskDtoToUi(dto: TaskDTO): Task {
+  return {
+    id: dto.id,
+    title: dto.title,
+    clientId: dto.clientId,
+    dueDate: dto.dueDate,
+    status: taskStatusCodeToUi(dto.status),
+    priority: taskPriorityCodeToUi(dto.priority),
+    assigneeIds: dto.assignees.map((a) => a.userId),
+    reviewerId: dto.reviewerId,
+    createdById: dto.createdById,
+    updatedAt: dto.updatedAt,
+    description: dto.description ?? undefined,
+    closureRemarks: dto.closureRemarks ?? undefined,
+    closedAt: dto.closedAt ?? undefined,
+    notes: [],
   };
 }
 
@@ -295,6 +361,7 @@ const statusTone: Record<TaskStatus, string> = {
   "Pending Internal": "border-orange-200 bg-orange-50 text-orange-800",
   "Under Review": "border-violet-200 bg-violet-50 text-violet-700",
   Closed: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  Cancelled: "border-rose-200 bg-rose-50 text-rose-700",
 };
 
 const priorityTone: Record<Task["priority"], string> = {
@@ -302,6 +369,7 @@ const priorityTone: Record<Task["priority"], string> = {
   Normal: "text-slate-700",
   High: "text-amber-700",
   Urgent: "text-red-700",
+  Critical: "text-red-800",
 };
 
 export default function Home() {
@@ -315,6 +383,8 @@ export default function Home() {
   const [statusFilter, setStatusFilter] = useState<"All" | TaskStatus>("All");
   const [assignmentList, setAssignmentList] = useState<Assignment[]>(seedAssignments);
   const [taskList, setTaskList] = useState<Task[]>(seedTasks);
+  const [tasksLoading, setTasksLoading] = useState(true);
+  const [tasksError, setTasksError] = useState<ApiError | null>(null);
   const [clientList, setClientList] = useState<Client[]>(seedClients);
   const [clientsLoading, setClientsLoading] = useState(true);
   const [clientsError, setClientsError] = useState<ApiError | null>(null);
@@ -355,7 +425,7 @@ export default function Home() {
           modules?: ModuleFlag[];
         };
         if (saved.assignments) setAssignmentList(saved.assignments);
-        if (saved.tasks) setTaskList(saved.tasks);
+        // Section 14 Step 5B-4a: tasks are no longer hydrated from localStorage; they load from GET /api/tasks.
         // Section 14 Step 5B-1: clients are no longer hydrated from localStorage; they load from GET /api/clients.
         // Section 14 Step 5B-3a: team is no longer hydrated from localStorage; it loads from GET /api/team.
         if (saved.firm) setFirmProfile(saved.firm);
@@ -372,7 +442,7 @@ export default function Home() {
     if (!isHydrated) return;
     window.localStorage.setItem(workspaceStorageKey, JSON.stringify({
       assignments: assignmentList,
-      tasks: taskList,
+      // Section 14 Step 5B-4a: tasks excluded from persist; API is source of truth. Pre-cutover tasks cache left intact as inert backup.
       // Section 14 Step 5B-1: clients excluded from persist; API is source of truth.
       // The pre-cutover `clients` key already in localStorage is left intact as backup.
       // Section 14 Step 5B-3a: team excluded from persist; API is source of truth. Pre-cutover team cache left intact.
@@ -381,7 +451,7 @@ export default function Home() {
       activity,
       modules,
     }));
-  }, [activity, assignmentList, firmDirectory, firmProfile, isHydrated, modules, taskList]);
+  }, [activity, assignmentList, firmDirectory, firmProfile, isHydrated, modules]);
 
   // Section 14 Step 5B-3a: resolve the current-user identity from GET /api/me
   // (server-authoritative platformRole + firmRole). No seed/email identity match.
@@ -482,12 +552,36 @@ export default function Home() {
     };
   }, [sessionUserId]);
 
+  // Section 14 Step 5B-4a: tasks read cutover. Load from GET /api/tasks once a
+  // session exists; map DB shape to UI shape. On failure show a controlled error
+  // - never fall back to seed/localStorage tasks.
+  useEffect(() => {
+    if (!sessionUserId) return;
+    let active = true;
+    tasksApi
+      .list()
+      .then((result) => {
+        if (!active) return;
+        setTaskList(result.items.map(mapTaskDtoToUi));
+        setTasksError(null);
+        setTasksLoading(false);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setTasksError(error instanceof ApiError ? error : new ApiError("server", 0, "Unable to load tasks."));
+        setTasksLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [sessionUserId]);
+
   // Section 14 Step 5B-3a: the current user comes from /api/me (server-authoritative),
   // not from a teamList lookup by id/email.
   const user = currentUser;
   const selectedTask = taskList.find((task) => task.id === selectedTaskId) ?? null;
   const isPlatformOwner = user?.platformRole === "Platform Owner";
-  const canCreateTask = Boolean(user && creatorRoles.includes(user.firmRole));
+  const canCreateTask = Boolean(user && creatorRoles.includes(user.firmRole)) && TASK_WRITES_ENABLED;
   const allowedSections = user ? navItems.filter((item) => canAccessSection(user, item.id)) : [];
   const defaultSection = allowedSections[0]?.id ?? "dashboard";
   const currentSection = user && canAccessSection(user, activeSection) ? activeSection : defaultSection;
@@ -515,6 +609,7 @@ export default function Home() {
 
   function createTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!TASK_WRITES_ENABLED) return; // Section 14 Step 5B-4a: task writes deferred to 5B-4b.
     if (!user || !canCreateTask) return;
     const form = new FormData(event.currentTarget);
     const title = String(form.get("title") || "").trim();
@@ -700,6 +795,7 @@ export default function Home() {
   }
 
   function addNote(taskId: string, text: string) {
+    if (!TASK_WRITES_ENABLED) return; // Section 14 Step 5B-4a: task writes deferred to 5B-4d.
     if (!user || !text.trim()) return;
     setTaskList((current) => current.map((task) => task.id === taskId ? {
       ...task,
@@ -710,6 +806,7 @@ export default function Home() {
   }
 
   function moveTask(taskId: string, nextStatus: TaskStatus, remarks?: string) {
+    if (!TASK_WRITES_ENABLED) return; // Section 14 Step 5B-4a: task writes deferred to 5B-4c.
     if (!user) return;
     const before = taskList.find((task) => task.id === taskId);
     if (!before || before.status === nextStatus) return;
@@ -729,6 +826,7 @@ export default function Home() {
   }
 
   function reassignTask(taskId: string, assigneeId: string) {
+    if (!TASK_WRITES_ENABLED) return; // Section 14 Step 5B-4a: task writes deferred to 5B-4d.
     if (!user || !canCreateTask || !assigneeId) return;
     const target = taskList.find((task) => task.id === taskId);
     const assignee = teamList.find((member) => member.id === assigneeId && member.isActive);
@@ -738,6 +836,7 @@ export default function Home() {
   }
 
   function updateReviewer(taskId: string, reviewerId: string) {
+    if (!TASK_WRITES_ENABLED) return; // Section 14 Step 5B-4a: task writes deferred to 5B-4d.
     if (!user || !canCreateTask || !reviewerId) return;
     const target = taskList.find((task) => task.id === taskId);
     const reviewer = teamList.find((member) => member.id === reviewerId && member.isActive);
@@ -747,6 +846,7 @@ export default function Home() {
   }
 
   function resequenceTask(taskId: string, direction: "up" | "down") {
+    if (!TASK_WRITES_ENABLED) return; // Section 14 Step 5B-4a: resequence has no API; deferred.
     if (!user || !canCreateTask) return;
     const target = taskList.find((task) => task.id === taskId);
     if (!target) return;
@@ -867,7 +967,11 @@ export default function Home() {
           <div className="p-4 md:p-6">
             <GuidanceNote title="Tip for effective usage" text={loginTip} />
             {currentSection === "dashboard" && <RoleDashboardView assignments={assignmentList} clients={clientList} modules={modules} openAssignment={() => setModal("assignment")} openTask={setSelectedTaskId} setActive={setActiveSection} tasks={taskList} team={teamList} user={user} />}
-            {currentSection === "tasks" && <TasksView assignments={assignmentList} stats={stats} tasks={visibleTasks} allTasks={taskList} clients={clientList} team={teamList} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} view={viewMode} setView={setViewMode} openTask={setSelectedTaskId} user={user} />}
+            {currentSection === "tasks" && (tasksLoading
+              ? <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading tasks…</div>
+              : tasksError
+                ? <div className="rounded-lg border border-red-300/40 bg-red-50 p-4 text-sm text-red-800" role="alert">Could not load tasks. Please retry.</div>
+                : <TasksView assignments={assignmentList} stats={stats} tasks={visibleTasks} allTasks={taskList} clients={clientList} team={teamList} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} view={viewMode} setView={setViewMode} openTask={setSelectedTaskId} user={user} />)}
             {currentSection === "assignments" && <AssignmentsView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openClient={CLIENT_WRITES_ENABLED ? () => setModal("client") : () => {}} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
             {currentSection === "projectReview" && <ProjectReviewView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
             {currentSection === "clients" && <ClientsView assignments={assignmentList} clients={clientList} tasks={taskList} loading={clientsLoading} error={clientsError} notice={clientsNotice} open={CLIENT_WRITES_ENABLED ? () => setModal("client") : () => {}} />}
@@ -885,7 +989,7 @@ export default function Home() {
           </div>
         </section>
       </div>
-      {modal === "task" && <TaskModal assignments={assignmentList} clients={clientList} team={teamList} close={() => setModal(null)} submit={createTask} />}
+      {TASK_WRITES_ENABLED && modal === "task" && <TaskModal assignments={assignmentList} clients={clientList} team={teamList} close={() => setModal(null)} submit={createTask} />}
       {modal === "assignment" && <AssignmentModal clients={clientList} close={() => setModal(null)} submit={createAssignment} team={teamList} />}
       {CLIENT_WRITES_ENABLED && modal === "client" && <ClientModal close={() => setModal(null)} submit={createClient} />}
       {TEAM_WRITES_ENABLED && modal === "team" && <TeamModal close={() => setModal(null)} submit={createMember} />}
@@ -1231,10 +1335,10 @@ function AssignmentTreeItem({ actions, assignment, canCoordinate, openTask, task
       <div className="space-y-2">{tasks.map((task, index) => <div key={task.id} className="grid gap-2 rounded-lg border border-slate-100 bg-white p-3 text-sm md:grid-cols-[1.2fr_0.55fr_0.85fr_0.85fr_0.7fr_0.55fr] md:items-center" title="Task mapping row">
         <button className="text-left font-semibold text-slate-950 hover:text-blue-700" onClick={() => openTask(task.id)} type="button">{task.title}</button>
         <StatusPill status={task.status} />
-        <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate} onChange={(event) => actions.reassignTask(task.id, event.target.value)} title="Reassign task owner" value={task.assigneeIds[0] ?? ""}>{team.filter((member) => member.isActive && member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select>
-        <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate} onChange={(event) => actions.updateReviewer(task.id, event.target.value)} title="Change reviewer" value={task.reviewerId}>{team.filter((member) => member.isActive && member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select>
+        <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate || !TASK_WRITES_ENABLED} onChange={(event) => actions.reassignTask(task.id, event.target.value)} title="Reassign task owner" value={task.assigneeIds[0] ?? ""}>{team.filter((member) => member.isActive && member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select>
+        <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate || !TASK_WRITES_ENABLED} onChange={(event) => actions.updateReviewer(task.id, event.target.value)} title="Change reviewer" value={task.reviewerId}>{team.filter((member) => member.isActive && member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select>
         <span className={dueState(task).tone + " text-xs font-semibold"}>{dueState(task).label} <span className="text-slate-400">{task.dueDate}</span></span>
-        <div className="flex gap-1"><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || index === 0} onClick={() => actions.resequenceTask(task.id, "up")} title="Move task earlier" type="button">Up</button><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || index === tasks.length - 1} onClick={() => actions.resequenceTask(task.id, "down")} title="Move task later" type="button">Down</button></div>
+        <div className="flex gap-1"><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || !TASK_WRITES_ENABLED || index === 0} onClick={() => actions.resequenceTask(task.id, "up")} title="Move task earlier" type="button">Up</button><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || !TASK_WRITES_ENABLED || index === tasks.length - 1} onClick={() => actions.resequenceTask(task.id, "down")} title="Move task later" type="button">Down</button></div>
       </div>)}</div>
     </div>
   </details>;
@@ -1338,10 +1442,10 @@ function ProjectTaskRow({ actions, canCoordinate, index, openTask, task, taskCou
   const risk = taskRisk(task);
   return <div className="grid gap-2 rounded-lg border border-slate-100 bg-white p-3 text-sm md:grid-cols-[1.2fr_0.8fr_0.8fr_0.7fr_0.55fr] md:items-center" title="Project task accountability row">
     <button className="text-left font-semibold text-slate-950 hover:text-blue-700" onClick={() => openTask(task.id)} type="button">{task.title}<span className="mt-1 block text-xs font-normal text-slate-500">{task.priority} priority</span></button>
-    <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate} onChange={(event) => actions.reassignTask(task.id, event.target.value)} title="Reassign assignee" value={task.assigneeIds[0] ?? ""}>{team.filter((member) => member.isActive && member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select>
-    <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate} onChange={(event) => actions.updateReviewer(task.id, event.target.value)} title="Change reviewer" value={task.reviewerId}>{team.filter((member) => member.isActive && member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select>
+    <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate || !TASK_WRITES_ENABLED} onChange={(event) => actions.reassignTask(task.id, event.target.value)} title="Reassign assignee" value={task.assigneeIds[0] ?? ""}>{team.filter((member) => member.isActive && member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select>
+    <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate || !TASK_WRITES_ENABLED} onChange={(event) => actions.updateReviewer(task.id, event.target.value)} title="Change reviewer" value={task.reviewerId}>{team.filter((member) => member.isActive && member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select>
     <div><p className={dueState(task).tone + " text-xs font-semibold"}>{dueState(task).label}</p><p className="text-xs text-slate-500">{task.dueDate}</p></div>
-    <div className="flex flex-wrap items-center gap-1"><span className={riskTone(risk) + " rounded-full px-2 py-1 text-xs font-semibold"}>{risk}</span><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || index === 0} onClick={() => actions.resequenceTask(task.id, "up")} title="Move earlier in sequence" type="button">Up</button><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || index === taskCount - 1} onClick={() => actions.resequenceTask(task.id, "down")} title="Move later in sequence" type="button">Down</button></div>
+    <div className="flex flex-wrap items-center gap-1"><span className={riskTone(risk) + " rounded-full px-2 py-1 text-xs font-semibold"}>{risk}</span><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || !TASK_WRITES_ENABLED || index === 0} onClick={() => actions.resequenceTask(task.id, "up")} title="Move earlier in sequence" type="button">Up</button><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || !TASK_WRITES_ENABLED || index === taskCount - 1} onClick={() => actions.resequenceTask(task.id, "down")} title="Move later in sequence" type="button">Down</button></div>
   </div>;
 }
 
@@ -1822,9 +1926,12 @@ function TeamModal({ close, submit }: { close: () => void; submit: (values: { na
 function TaskDrawer({ addNote, assignments, clients, close, moveTask, task, team, user }: { addNote: (taskId: string, note: string) => void; assignments: Assignment[]; clients: Client[]; close: () => void; moveTask: (taskId: string, status: TaskStatus, remarks?: string) => void; task: Task; team: TeamMember[]; user: TeamMember }) {
   const [note, setNote] = useState("");
   const [remarks, setRemarks] = useState("");
-  const assignee = task.assigneeIds.includes(user.id);
-  const reviewer = task.reviewerId === user.id || user.firmRole === "Firm Admin" || user.platformRole === "Platform Owner";
-  const canUpdate = assignee || reviewer || task.createdById === user.id;
+  // Section 14 Step 5B-4a: task writes deferred; gate the drawer write controls
+  // behind TASK_WRITES_ENABLED (read-only drawer in this wave). All Workflow
+  // buttons + the note form key off assignee / reviewer / canUpdate.
+  const assignee = TASK_WRITES_ENABLED && task.assigneeIds.includes(user.id);
+  const reviewer = TASK_WRITES_ENABLED && (task.reviewerId === user.id || user.firmRole === "Firm Admin" || user.platformRole === "Platform Owner");
+  const canUpdate = TASK_WRITES_ENABLED && (assignee || reviewer || task.createdById === user.id);
   return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl"><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4"><div><button className="mb-2 text-sm font-semibold text-slate-600 hover:text-slate-950" onClick={close} type="button">Back</button><h2 className="text-xl font-semibold text-slate-950">{task.title}</h2><p className="mt-1 text-sm text-slate-500">{clientName(clients, task.clientId)} - {assignmentName(assignments, task.assignmentId)}</p></div><StatusPill status={task.status} /></div><div className="space-y-5 p-5"><div className="grid gap-3 md:grid-cols-2"><Info label="Assignment" value={assignmentName(assignments, task.assignmentId)} /><Info label="Due date" value={task.dueDate + " - " + dueState(task).label} /><Info label="Priority" value={task.priority} /><Info label="Assignees" value={task.assigneeIds.map((id) => userName(team, id)).join(", ")} /><Info label="Reviewer" value={userName(team, task.reviewerId)} /></div>{task.description && <Info label="Description" value={task.description} />}<div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Workflow actions</h3><div className="mt-3 flex flex-wrap gap-2"><Workflow disabled={!canUpdate || task.status === "Closed"} label="Start / resume" action={() => moveTask(task.id, "In Progress")} /><Workflow disabled={!canUpdate || task.status === "Closed"} label="Pending client" action={() => moveTask(task.id, "Pending Client")} /><Workflow disabled={!canUpdate || task.status === "Closed"} label="Pending internal" action={() => moveTask(task.id, "Pending Internal")} /><Workflow disabled={!assignee || task.status === "Closed"} label="Move to review" action={() => moveTask(task.id, "Under Review")} /><Workflow disabled={!reviewer || task.status !== "Under Review"} label="Send back" action={() => moveTask(task.id, "In Progress")} /></div><div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3"><label className="block text-sm font-medium text-slate-700">Closure remarks</label><textarea className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Required before reviewer closes the task" /><button className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" disabled={!reviewer || task.status !== "Under Review" || !remarks.trim()} onClick={() => moveTask(task.id, "Closed", remarks.trim())} type="button">Close after review</button></div></div><div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Progress notes</h3><form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); addNote(task.id, note); setNote(""); }}><input className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" disabled={!canUpdate} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add progress note" /><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!canUpdate || !note.trim()} type="submit">Add</button></form><div className="mt-4 space-y-3">{task.notes.map((item) => <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm"><p className="text-slate-700">{item.text}</p><p className="mt-2 text-xs text-slate-500">{item.authorId ? userName(team, item.authorId) : item.author} - {item.createdAt}{item.newStatus ? " - " + (item.oldStatus ?? "Status") + " to " + item.newStatus : ""}</p></div>)}</div></div>{task.closureRemarks && <Info label="Closure remarks" value={task.closureRemarks} />}</div></aside></div>;
 }
 
