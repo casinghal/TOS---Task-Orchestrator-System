@@ -282,7 +282,7 @@ export const tasksApi = {
   }) => apiPost<TaskDTO>("/api/tasks", input),
   update: (
     id: string,
-    input: Partial<{ title: string; description: string; priority: string; dueDate: string; status: string }>,
+    input: Partial<{ title: string; description: string; priority: string; dueDate: string; status: string; note: string }>,
   ) => apiPatch<TaskDTO>(`/api/tasks/${id}`, input),
   addNote: (id: string, note: string) => apiPost<unknown>(`/api/tasks/${id}/notes`, { note }),
   setAssignees: (id: string, assigneeIds: string[]) =>

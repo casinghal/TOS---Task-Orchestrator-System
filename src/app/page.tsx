@@ -54,6 +54,10 @@ import {
 } from "@/lib/workspace-data";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { clientsApi, teamApi, meApi, tasksApi, ApiError, type ClientDTO, type TeamMemberDTO, type MeDTO, type TaskDTO } from "@/lib/api-client";
+// Section 14 Step 5B-4c-1a: reuse the server transition matrix for transition-aware
+// UI gating (no drift). Pure constants module; client-safe. Code-vocabulary type
+// aliased to avoid colliding with the UI-label TaskStatus from workspace-data.
+import { isAllowedTransition, type TaskStatus as TaskStatusCode } from "@/lib/task-constants";
 
 type Section = "dashboard" | "tasks" | "assignments" | "projectReview" | "clients" | "team" | "reports" | "firmSetup" | "admin";
 type ViewMode = "list" | "kanban";
@@ -114,6 +118,13 @@ const TASK_WRITES_ENABLED = false;
 // move/status, notes, assignees, reviewer update, and resequence stay parked on
 // TASK_WRITES_ENABLED (false).
 const TASK_CREATE_ENABLED = true;
+
+// Section 14 Step 5B-4c-1: task STATUS MOVE + CLOSE cutover. Lifecycle workflow
+// buttons (status transitions) and the Close-after-review flow are enabled via
+// this flag and write through the API (source of truth). The progress-note form,
+// assignee update, reviewer update, and resequence stay parked on
+// TASK_WRITES_ENABLED (false). Reopen and Cancel are deferred to 5B-4c-2.
+const TASK_LIFECYCLE_ENABLED = true;
 
 // FirmRole code (API) -> UI display string.
 function firmRoleCodeToUi(code: string): FirmRole {
@@ -214,6 +225,37 @@ function priorityUiToCode(label: string): string {
   }
 }
 
+// Section 14 Step 5B-4c-1: UI status label -> server code for lifecycle moves.
+// Mirrors TASK_STATUS_CODE_TO_UI. Closed routes through the dedicated /close API
+// (not PATCH). Cancelled / closed-task reopen are not enabled in this wave
+// (deferred to 5B-4c-2); moveTask guards Cancelled before this map is used.
+function statusUiToCode(status: TaskStatus): string {
+  switch (status) {
+    case "Open": return "OPEN";
+    case "In Progress": return "IN_PROGRESS";
+    case "Pending Client": return "PENDING_CLIENT";
+    case "Pending Internal": return "PENDING_INTERNAL";
+    case "Under Review": return "UNDER_REVIEW";
+    case "Closed": return "CLOSED";
+    case "Cancelled": return "CANCELLED";
+    default:
+      console.warn("Unknown task status label; defaulting to OPEN:", status);
+      return "OPEN";
+  }
+}
+
+// Section 14 Step 5B-4c-1a: transition-aware UI gating. Mirrors the server
+// transition matrix (task-constants) so workflow buttons only offer legal next
+// states. Closed/Cancelled are treated as terminal here because reopen/cancel
+// are parked for 5B-4c-2 (CLOSED -> IN_PROGRESS is a /reopen action, not a PATCH).
+function lifecycleCanMoveTo(currentUi: TaskStatus, targetUi: TaskStatus): boolean {
+  if (currentUi === "Closed" || currentUi === "Cancelled") return false;
+  return isAllowedTransition(
+    statusUiToCode(currentUi) as TaskStatusCode,
+    statusUiToCode(targetUi) as TaskStatusCode,
+  );
+}
+
 // Section 14 Step 5B-4b: controlled error messaging for task create (no silent fallback).
 function taskCreateErrorMessage(error: ApiError): string {
   switch (error.kind) {
@@ -223,6 +265,19 @@ function taskCreateErrorMessage(error: ApiError): string {
     case "validation": return error.message || "Please check the task details and try again.";
     case "db_unavailable": return "Task creation is temporarily unavailable. Please retry shortly.";
     default: return "Could not create the task. Please try again.";
+  }
+}
+
+// Section 14 Step 5B-4c-1: controlled lifecycle error messaging for status move +
+// close. Covers 401/403/404/422/503 via ApiError.kind. No silent fallback.
+function taskLifecycleErrorMessage(error: ApiError): string {
+  switch (error.kind) {
+    case "session": return "Your session has expired. Please sign in again.";
+    case "authorization": return "You do not have permission to change this task.";
+    case "not_found": return error.message || "This task was not found in this firm.";
+    case "validation": return error.message || "This status change is not allowed. Please refresh and try again.";
+    case "db_unavailable": return "Task updates are temporarily unavailable. Please retry shortly.";
+    default: return "Could not update the task. Please try again.";
   }
 }
 
@@ -852,24 +907,37 @@ export default function Home() {
     log(user.id, "Added progress note", "Task", taskTitle(taskList, taskId));
   }
 
-  function moveTask(taskId: string, nextStatus: TaskStatus, remarks?: string) {
-    if (!TASK_WRITES_ENABLED) return; // Section 14 Step 5B-4a: task writes deferred to 5B-4c.
-    if (!user) return;
+  // Section 14 Step 5B-4c-1: status move + close cut over to the API (source of
+  // truth). Non-terminal moves -> PATCH /api/tasks/[id] (with a progress note);
+  // Closed -> POST /api/tasks/[id]/close (user-entered remarks). On success the
+  // list refetches from the API. No local setTaskList mutation as source of truth,
+  // no log(), no localStorage write. Cancelled and closed-task reopen are NOT
+  // enabled in this wave (deferred to 5B-4c-2).
+  async function moveTask(taskId: string, nextStatus: TaskStatus, remarks?: string): Promise<{ ok: boolean; message?: string }> {
+    if (!TASK_LIFECYCLE_ENABLED || !user) return { ok: false, message: "Task workflow is not available." };
+    if (nextStatus === "Cancelled") return { ok: false, message: "Cancel is not available yet." };
     const before = taskList.find((task) => task.id === taskId);
-    if (!before || before.status === nextStatus) return;
-    setTaskList((current) => current.map((task) => task.id === taskId ? {
-      ...task,
-      status: nextStatus,
-      updatedAt: "Just now",
-      closedAt: nextStatus === "Closed" ? "Just now" : task.closedAt,
-      closureRemarks: nextStatus === "Closed" ? remarks : task.closureRemarks,
-      notes: [{
-        id: "n_" + Date.now(), authorId: user.id,
-        text: nextStatus === "Closed" ? "Closed after review. " + (remarks ?? "") : "Status moved to " + nextStatus + ".",
-        createdAt: "Just now", oldStatus: task.status, newStatus: nextStatus,
-      }, ...task.notes],
-    } : task));
-    log(user.id, "Moved task to " + nextStatus, "Task", before.title);
+    if (!before || before.status === nextStatus) return { ok: false, message: "No status change to apply." };
+    try {
+      if (nextStatus === "Closed") {
+        const trimmed = (remarks ?? "").trim();
+        if (!trimmed) return { ok: false, message: "Closure remarks are required." };
+        await tasksApi.close(taskId, trimmed);
+      } else {
+        await tasksApi.update(taskId, { status: statusUiToCode(nextStatus), note: "Status update via Task UI" });
+      }
+    } catch (error: unknown) {
+      return { ok: false, message: error instanceof ApiError ? taskLifecycleErrorMessage(error) : "Could not update the task. Please try again." };
+    }
+    // Move/close succeeded server-side. Refetch so the API is the source of truth.
+    try {
+      const result = await tasksApi.list();
+      setTaskList(result.items.map(mapTaskDtoToUi));
+      setTasksError(null);
+    } catch {
+      setTasksError(new ApiError("server", 0, "Task updated, but the list could not refresh. Please reload."));
+    }
+    return { ok: true };
   }
 
   function reassignTask(taskId: string, assigneeId: string) {
@@ -1312,7 +1380,7 @@ function Metric({ icon: Icon, label, tone, value }: { icon: typeof AlertTriangle
 }
 
 function TaskTable({ assignments, clients, openTask, tasks, team }: { assignments: Assignment[]; clients: Client[]; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[] }) {
-  return <div className="overflow-x-auto"><table className="w-full min-w-[1080px] border-collapse text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-semibold" title="Task title entered by the creator.">Task</th><th className="px-4 py-3 font-semibold" title="Client linked to the task.">Client</th><th className="px-4 py-3 font-semibold" title="Assignment stream this task rolls up into.">Assignment</th><th className="px-4 py-3 font-semibold" title="Current workflow stage.">Status</th><th className="px-4 py-3 font-semibold" title="Due date and urgency.">Due</th><th className="px-4 py-3 font-semibold" title="People responsible for doing the work.">Assignees</th><th className="px-4 py-3 font-semibold" title="Person responsible for review and closure.">Reviewer</th><th className="px-4 py-3 font-semibold" title="Priority selected by the creator.">Priority</th><th className="px-4 py-3 font-semibold" title="Open the task detail panel.">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{tasks.length === 0 && <tr><td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={9}>No tasks yet. Add a client first, then create an assignment and task with only the required details.</td></tr>}{tasks.map((task) => { const due = dueState(task); return <tr key={task.id} className="hover:bg-slate-50/70" title="Open this task to update status, notes, and review closure."><td className="px-4 py-3 font-medium text-slate-950">{task.title}</td><td className="px-4 py-3 text-slate-600">{clientName(clients, task.clientId)}</td><td className="px-4 py-3 text-slate-600">{assignmentName(assignments, task.assignmentId)}</td><td className="px-4 py-3"><StatusPill status={task.status} /></td><td className="px-4 py-3"><span className={due.tone + " font-medium"}>{due.label}</span><div className="text-xs text-slate-500">{task.dueDate}</div></td><td className="px-4 py-3 text-slate-600">{task.assigneeIds.map((id) => userNameByUserId(team, id)).join(", ")}</td><td className="px-4 py-3 text-slate-600">{userName(team, task.reviewerId)}</td><td className={priorityTone[task.priority] + " px-4 py-3 font-semibold"}>{task.priority}</td><td className="px-4 py-3"><button className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => openTask(task.id)} title="View task details and workflow actions" type="button">View</button></td></tr>; })}</tbody></table></div>;
+  return <div className="overflow-x-auto"><table className="w-full min-w-[1080px] border-collapse text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-semibold" title="Task title entered by the creator.">Task</th><th className="px-4 py-3 font-semibold" title="Client linked to the task.">Client</th><th className="px-4 py-3 font-semibold" title="Assignment stream this task rolls up into.">Assignment</th><th className="px-4 py-3 font-semibold" title="Current workflow stage.">Status</th><th className="px-4 py-3 font-semibold" title="Due date and urgency.">Due</th><th className="px-4 py-3 font-semibold" title="People responsible for doing the work.">Assignees</th><th className="px-4 py-3 font-semibold" title="Person responsible for review and closure.">Reviewer</th><th className="px-4 py-3 font-semibold" title="Priority selected by the creator.">Priority</th><th className="px-4 py-3 font-semibold" title="Open the task detail panel.">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{tasks.length === 0 && <tr><td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={9}>No tasks yet. Add a client first, then create an assignment and task with only the required details.</td></tr>}{tasks.map((task) => { const due = dueState(task); return <tr key={task.id} className="hover:bg-slate-50/70" title="Open this task to update status, notes, and review closure."><td className="px-4 py-3 font-medium text-slate-950">{task.title}</td><td className="px-4 py-3 text-slate-600">{clientName(clients, task.clientId)}</td><td className="px-4 py-3 text-slate-600">{assignmentName(assignments, task.assignmentId)}</td><td className="px-4 py-3"><StatusPill status={task.status} /></td><td className="px-4 py-3"><span className={due.tone + " font-medium"}>{due.label}</span><div className="text-xs text-slate-500">{task.dueDate}</div></td><td className="px-4 py-3 text-slate-600">{task.assigneeIds.map((id) => userNameByUserId(team, id)).join(", ")}</td><td className="px-4 py-3 text-slate-600">{userNameByUserId(team, task.reviewerId)}</td><td className={priorityTone[task.priority] + " px-4 py-3 font-semibold"}>{task.priority}</td><td className="px-4 py-3"><button className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => openTask(task.id)} title="View task details and workflow actions" type="button">View</button></td></tr>; })}</tbody></table></div>;
 }
 
 function Kanban({ assignments, clients, openTask, tasks, team }: { assignments: Assignment[]; clients: Client[]; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[] }) {
@@ -1996,16 +2064,34 @@ function TeamModal({ close, submit }: { close: () => void; submit: (values: { na
   return <ModalFrame title="Add team member" subtitle="Use an official work email. Password is created by the user on first sign-in." close={close}><form className="space-y-4" noValidate onSubmit={onSubmit}><Field label="Name" name="name" required /><Field label="Work email" name="email" placeholder="name@yourfirm.com" required type="email" /><Select label="Role" name="firmRole"><option>Firm Admin</option><option>Partner</option><option>Manager</option><option>Article/Staff</option></Select>{error && <div className="rounded-lg border border-red-300/50 bg-red-50 p-3 text-sm text-red-700" role="alert">{error}</div>}<Actions close={close} disabled={isSubmitting} label={isSubmitting ? "Adding..." : "Add User"} /></form></ModalFrame>;
 }
 
-function TaskDrawer({ addNote, assignments, clients, close, moveTask, task, team, user }: { addNote: (taskId: string, note: string) => void; assignments: Assignment[]; clients: Client[]; close: () => void; moveTask: (taskId: string, status: TaskStatus, remarks?: string) => void; task: Task; team: TeamMember[]; user: TeamMember }) {
+function TaskDrawer({ addNote, assignments, clients, close, moveTask, task, team, user }: { addNote: (taskId: string, note: string) => void; assignments: Assignment[]; clients: Client[]; close: () => void; moveTask: (taskId: string, status: TaskStatus, remarks?: string) => Promise<{ ok: boolean; message?: string }>; task: Task; team: TeamMember[]; user: TeamMember }) {
   const [note, setNote] = useState("");
   const [remarks, setRemarks] = useState("");
-  // Section 14 Step 5B-4a: task writes deferred; gate the drawer write controls
-  // behind TASK_WRITES_ENABLED (read-only drawer in this wave). All Workflow
-  // buttons + the note form key off assignee / reviewer / canUpdate.
-  const assignee = TASK_WRITES_ENABLED && task.assigneeIds.includes(user.userId ?? "");
-  const reviewer = TASK_WRITES_ENABLED && (task.reviewerId === (user.userId ?? "") || user.firmRole === "Firm Admin" || user.platformRole === "Platform Owner");
-  const canUpdate = TASK_WRITES_ENABLED && (assignee || reviewer || task.createdById === (user.userId ?? ""));
-  return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl"><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4"><div><button className="mb-2 text-sm font-semibold text-slate-600 hover:text-slate-950" onClick={close} type="button">Back</button><h2 className="text-xl font-semibold text-slate-950">{task.title}</h2><p className="mt-1 text-sm text-slate-500">{clientName(clients, task.clientId)} - {assignmentName(assignments, task.assignmentId)}</p></div><StatusPill status={task.status} /></div><div className="space-y-5 p-5"><div className="grid gap-3 md:grid-cols-2"><Info label="Assignment" value={assignmentName(assignments, task.assignmentId)} /><Info label="Due date" value={task.dueDate + " - " + dueState(task).label} /><Info label="Priority" value={task.priority} /><Info label="Assignees" value={task.assigneeIds.map((id) => userNameByUserId(team, id)).join(", ")} /><Info label="Reviewer" value={userNameByUserId(team, task.reviewerId)} /></div>{task.description && <Info label="Description" value={task.description} />}<div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Workflow actions</h3><div className="mt-3 flex flex-wrap gap-2"><Workflow disabled={!canUpdate || task.status === "Closed"} label="Start / resume" action={() => moveTask(task.id, "In Progress")} /><Workflow disabled={!canUpdate || task.status === "Closed"} label="Pending client" action={() => moveTask(task.id, "Pending Client")} /><Workflow disabled={!canUpdate || task.status === "Closed"} label="Pending internal" action={() => moveTask(task.id, "Pending Internal")} /><Workflow disabled={!assignee || task.status === "Closed"} label="Move to review" action={() => moveTask(task.id, "Under Review")} /><Workflow disabled={!reviewer || task.status !== "Under Review"} label="Send back" action={() => moveTask(task.id, "In Progress")} /></div><div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3"><label className="block text-sm font-medium text-slate-700">Closure remarks</label><textarea className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Required before reviewer closes the task" /><button className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" disabled={!reviewer || task.status !== "Under Review" || !remarks.trim()} onClick={() => moveTask(task.id, "Closed", remarks.trim())} type="button">Close after review</button></div></div><div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Progress notes</h3><form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); addNote(task.id, note); setNote(""); }}><input className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" disabled={!canUpdate} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add progress note" /><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!canUpdate || !note.trim()} type="submit">Add</button></form><div className="mt-4 space-y-3">{task.notes.map((item) => <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm"><p className="text-slate-700">{item.text}</p><p className="mt-2 text-xs text-slate-500">{item.authorId ? userName(team, item.authorId) : item.author} - {item.createdAt}{item.newStatus ? " - " + (item.oldStatus ?? "Status") + " to " + item.newStatus : ""}</p></div>)}</div></div>{task.closureRemarks && <Info label="Closure remarks" value={task.closureRemarks} />}</div></aside></div>;
+  // Section 14 Step 5B-4c-1: lifecycle (status move + close) cuts over to the API
+  // behind TASK_LIFECYCLE_ENABLED. The progress-note form / assignee / reviewer /
+  // resequence stay parked behind TASK_WRITES_ENABLED (false) until 5B-4c-2 / 4d.
+  const [actionPending, setActionPending] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const rawAssignee = task.assigneeIds.includes(user.userId ?? "");
+  const rawReviewer = task.reviewerId === (user.userId ?? "") || user.firmRole === "Firm Admin" || user.platformRole === "Platform Owner";
+  const rawCanUpdate = rawAssignee || rawReviewer || task.createdById === (user.userId ?? "");
+  // Lifecycle gates (status move + close) — enabled this wave.
+  const lcAssignee = TASK_LIFECYCLE_ENABLED && rawAssignee;
+  const lcReviewer = TASK_LIFECYCLE_ENABLED && rawReviewer;
+  const lcCanUpdate = TASK_LIFECYCLE_ENABLED && rawCanUpdate;
+  // Progress-note form gate — parked.
+  const noteCanUpdate = TASK_WRITES_ENABLED && rawCanUpdate;
+  // Runs a lifecycle action with an in-flight guard + inline error capture. On
+  // success the refetched task list re-renders this drawer from API state.
+  async function runMove(nextStatus: TaskStatus, closureRemarks?: string) {
+    if (actionPending) return;
+    setActionPending(true);
+    setActionError("");
+    const result = await moveTask(task.id, nextStatus, closureRemarks);
+    if (!result.ok) setActionError(result.message ?? "Could not update the task. Please try again.");
+    setActionPending(false);
+  }
+  return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl"><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4"><div><button className="mb-2 text-sm font-semibold text-slate-600 hover:text-slate-950" onClick={close} type="button">Back</button><h2 className="text-xl font-semibold text-slate-950">{task.title}</h2><p className="mt-1 text-sm text-slate-500">{clientName(clients, task.clientId)} - {assignmentName(assignments, task.assignmentId)}</p></div><StatusPill status={task.status} /></div><div className="space-y-5 p-5"><div className="grid gap-3 md:grid-cols-2"><Info label="Assignment" value={assignmentName(assignments, task.assignmentId)} /><Info label="Due date" value={task.dueDate + " - " + dueState(task).label} /><Info label="Priority" value={task.priority} /><Info label="Assignees" value={task.assigneeIds.map((id) => userNameByUserId(team, id)).join(", ")} /><Info label="Reviewer" value={userNameByUserId(team, task.reviewerId)} /></div>{task.description && <Info label="Description" value={task.description} />}<div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Workflow actions</h3><div className="mt-3 flex flex-wrap gap-2"><Workflow disabled={!lcCanUpdate || actionPending || task.status === "Under Review" || !lifecycleCanMoveTo(task.status, "In Progress")} label="Start / resume" action={() => runMove("In Progress")} /><Workflow disabled={!lcCanUpdate || actionPending || !lifecycleCanMoveTo(task.status, "Pending Client")} label="Pending client" action={() => runMove("Pending Client")} /><Workflow disabled={!lcCanUpdate || actionPending || !lifecycleCanMoveTo(task.status, "Pending Internal")} label="Pending internal" action={() => runMove("Pending Internal")} /><Workflow disabled={!lcAssignee || actionPending || !lifecycleCanMoveTo(task.status, "Under Review")} label="Move to review" action={() => runMove("Under Review")} /><Workflow disabled={!lcReviewer || actionPending || task.status !== "Under Review"} label="Send back" action={() => runMove("In Progress")} /></div><div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3"><label className="block text-sm font-medium text-slate-700">Closure remarks</label><textarea className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Required before reviewer closes the task" /><button className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" disabled={!lcReviewer || actionPending || task.status !== "Under Review" || !remarks.trim()} onClick={() => runMove("Closed", remarks.trim())} type="button">Close after review</button></div>{actionError && <p className="mt-3 text-sm text-red-600">{actionError}</p>}</div><div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Progress notes</h3><form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); addNote(task.id, note); setNote(""); }}><input className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" disabled={!noteCanUpdate} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add progress note" /><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!noteCanUpdate || !note.trim()} type="submit">Add</button></form><div className="mt-4 space-y-3">{task.notes.map((item) => <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm"><p className="text-slate-700">{item.text}</p><p className="mt-2 text-xs text-slate-500">{item.authorId ? userName(team, item.authorId) : item.author} - {item.createdAt}{item.newStatus ? " - " + (item.oldStatus ?? "Status") + " to " + item.newStatus : ""}</p></div>)}</div></div>{task.closureRemarks && <Info label="Closure remarks" value={task.closureRemarks} />}</div></aside></div>;
 }
 
 function ModalFrame({ children, close, subtitle, title }: { children: React.ReactNode; close: () => void; subtitle: string; title: string }) {
