@@ -289,10 +289,14 @@ export const tasksApi = {
     apiPatch<TaskDTO>(`/api/tasks/${id}/assignees`, { assigneeIds }),
   close: (id: string, closureRemarks?: string) =>
     apiPost<TaskDTO>(`/api/tasks/${id}/close`, closureRemarks ? { closureRemarks } : undefined),
-  reopen: (id: string, note?: string) =>
-    apiPost<TaskDTO>(`/api/tasks/${id}/reopen`, note ? { note } : undefined),
-  cancel: (id: string, note?: string) =>
-    apiPost<TaskDTO>(`/api/tasks/${id}/cancel`, note ? { note } : undefined),
+  // Section 14 Step 5B-4c-2: the reopen/cancel routes Zod-require a non-empty
+  // `{ reason }` body (min1, "... reason is required."); the previous optional
+  // `{ note }` shape would have been rejected with 422. Reason is required at
+  // the wrapper signature so call sites cannot omit it.
+  reopen: (id: string, reason: string) =>
+    apiPost<TaskDTO>(`/api/tasks/${id}/reopen`, { reason }),
+  cancel: (id: string, reason: string) =>
+    apiPost<TaskDTO>(`/api/tasks/${id}/cancel`, { reason }),
 };
 
 export const activityApi = {

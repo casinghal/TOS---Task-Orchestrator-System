@@ -907,15 +907,30 @@ export default function Home() {
     log(user.id, "Added progress note", "Task", taskTitle(taskList, taskId));
   }
 
+  // Section 14 Step 5B-4c: shared post-lifecycle refetch. The mutation already
+  // succeeded server-side; refetch so the API is the source of truth. A refetch
+  // failure resolves ok (avoids duplicate mutation on re-click) with a controlled
+  // list-level message.
+  async function refetchTasksAfterLifecycle(): Promise<{ ok: boolean; message?: string }> {
+    try {
+      const result = await tasksApi.list();
+      setTaskList(result.items.map(mapTaskDtoToUi));
+      setTasksError(null);
+    } catch {
+      setTasksError(new ApiError("server", 0, "Task updated, but the list could not refresh. Please reload."));
+    }
+    return { ok: true };
+  }
+
   // Section 14 Step 5B-4c-1: status move + close cut over to the API (source of
   // truth). Non-terminal moves -> PATCH /api/tasks/[id] (with a progress note);
   // Closed -> POST /api/tasks/[id]/close (user-entered remarks). On success the
   // list refetches from the API. No local setTaskList mutation as source of truth,
-  // no log(), no localStorage write. Cancelled and closed-task reopen are NOT
-  // enabled in this wave (deferred to 5B-4c-2).
+  // no log(), no localStorage write. Reopen and cancel are dedicated actions
+  // (5B-4c-2 below), not status-matrix moves through this function.
   async function moveTask(taskId: string, nextStatus: TaskStatus, remarks?: string): Promise<{ ok: boolean; message?: string }> {
     if (!TASK_LIFECYCLE_ENABLED || !user) return { ok: false, message: "Task workflow is not available." };
-    if (nextStatus === "Cancelled") return { ok: false, message: "Cancel is not available yet." };
+    if (nextStatus === "Cancelled") return { ok: false, message: "Cancel runs through its dedicated action." };
     const before = taskList.find((task) => task.id === taskId);
     if (!before || before.status === nextStatus) return { ok: false, message: "No status change to apply." };
     try {
@@ -929,15 +944,36 @@ export default function Home() {
     } catch (error: unknown) {
       return { ok: false, message: error instanceof ApiError ? taskLifecycleErrorMessage(error) : "Could not update the task. Please try again." };
     }
-    // Move/close succeeded server-side. Refetch so the API is the source of truth.
+    return refetchTasksAfterLifecycle();
+  }
+
+  // Section 14 Step 5B-4c-2: reopen + cancel are dedicated lifecycle actions (not
+  // normal status-matrix moves). Both routes Zod-require a non-empty user-entered
+  // reason. On success the list refetches from the API (source of truth). No local
+  // task mutation, no log(), no localStorage write. The backend permission matrix
+  // (TASK_REOPEN / TASK_CANCEL) remains the final authority.
+  async function reopenTask(taskId: string, reason: string): Promise<{ ok: boolean; message?: string }> {
+    if (!TASK_LIFECYCLE_ENABLED || !user) return { ok: false, message: "Task workflow is not available." };
+    const trimmed = reason.trim();
+    if (!trimmed) return { ok: false, message: "Reopen reason is required." };
     try {
-      const result = await tasksApi.list();
-      setTaskList(result.items.map(mapTaskDtoToUi));
-      setTasksError(null);
-    } catch {
-      setTasksError(new ApiError("server", 0, "Task updated, but the list could not refresh. Please reload."));
+      await tasksApi.reopen(taskId, trimmed);
+    } catch (error: unknown) {
+      return { ok: false, message: error instanceof ApiError ? taskLifecycleErrorMessage(error) : "Could not update the task. Please try again." };
     }
-    return { ok: true };
+    return refetchTasksAfterLifecycle();
+  }
+
+  async function cancelTask(taskId: string, reason: string): Promise<{ ok: boolean; message?: string }> {
+    if (!TASK_LIFECYCLE_ENABLED || !user) return { ok: false, message: "Task workflow is not available." };
+    const trimmed = reason.trim();
+    if (!trimmed) return { ok: false, message: "Cancellation reason is required." };
+    try {
+      await tasksApi.cancel(taskId, trimmed);
+    } catch (error: unknown) {
+      return { ok: false, message: error instanceof ApiError ? taskLifecycleErrorMessage(error) : "Could not update the task. Please try again." };
+    }
+    return refetchTasksAfterLifecycle();
   }
 
   function reassignTask(taskId: string, assigneeId: string) {
@@ -1108,7 +1144,7 @@ export default function Home() {
       {modal === "assignment" && <AssignmentModal clients={clientList} close={() => setModal(null)} submit={createAssignment} team={teamList} />}
       {CLIENT_WRITES_ENABLED && modal === "client" && <ClientModal close={() => setModal(null)} submit={createClient} />}
       {TEAM_WRITES_ENABLED && modal === "team" && <TeamModal close={() => setModal(null)} submit={createMember} />}
-      {selectedTask && <TaskDrawer assignments={assignmentList} task={selectedTask} team={teamList} clients={clientList} user={user} close={() => setSelectedTaskId(null)} addNote={addNote} moveTask={moveTask} />}
+      {selectedTask && <TaskDrawer assignments={assignmentList} task={selectedTask} team={teamList} clients={clientList} user={user} close={() => setSelectedTaskId(null)} addNote={addNote} moveTask={moveTask} reopenTask={reopenTask} cancelTask={cancelTask} />}
     </main>
   );
 }
@@ -2064,7 +2100,7 @@ function TeamModal({ close, submit }: { close: () => void; submit: (values: { na
   return <ModalFrame title="Add team member" subtitle="Use an official work email. Password is created by the user on first sign-in." close={close}><form className="space-y-4" noValidate onSubmit={onSubmit}><Field label="Name" name="name" required /><Field label="Work email" name="email" placeholder="name@yourfirm.com" required type="email" /><Select label="Role" name="firmRole"><option>Firm Admin</option><option>Partner</option><option>Manager</option><option>Article/Staff</option></Select>{error && <div className="rounded-lg border border-red-300/50 bg-red-50 p-3 text-sm text-red-700" role="alert">{error}</div>}<Actions close={close} disabled={isSubmitting} label={isSubmitting ? "Adding..." : "Add User"} /></form></ModalFrame>;
 }
 
-function TaskDrawer({ addNote, assignments, clients, close, moveTask, task, team, user }: { addNote: (taskId: string, note: string) => void; assignments: Assignment[]; clients: Client[]; close: () => void; moveTask: (taskId: string, status: TaskStatus, remarks?: string) => Promise<{ ok: boolean; message?: string }>; task: Task; team: TeamMember[]; user: TeamMember }) {
+function TaskDrawer({ addNote, assignments, cancelTask, clients, close, moveTask, reopenTask, task, team, user }: { addNote: (taskId: string, note: string) => void; assignments: Assignment[]; cancelTask: (taskId: string, reason: string) => Promise<{ ok: boolean; message?: string }>; clients: Client[]; close: () => void; moveTask: (taskId: string, status: TaskStatus, remarks?: string) => Promise<{ ok: boolean; message?: string }>; reopenTask: (taskId: string, reason: string) => Promise<{ ok: boolean; message?: string }>; task: Task; team: TeamMember[]; user: TeamMember }) {
   const [note, setNote] = useState("");
   const [remarks, setRemarks] = useState("");
   // Section 14 Step 5B-4c-1: lifecycle (status move + close) cuts over to the API
@@ -2072,6 +2108,8 @@ function TaskDrawer({ addNote, assignments, clients, close, moveTask, task, team
   // resequence stay parked behind TASK_WRITES_ENABLED (false) until 5B-4c-2 / 4d.
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState("");
+  // Section 14 Step 5B-4c-2: user-entered reason for the contextual reopen/cancel action.
+  const [actionReason, setActionReason] = useState("");
   const rawAssignee = task.assigneeIds.includes(user.userId ?? "");
   const rawReviewer = task.reviewerId === (user.userId ?? "") || user.firmRole === "Firm Admin" || user.platformRole === "Platform Owner";
   const rawCanUpdate = rawAssignee || rawReviewer || task.createdById === (user.userId ?? "");
@@ -2091,7 +2129,24 @@ function TaskDrawer({ addNote, assignments, clients, close, moveTask, task, team
     if (!result.ok) setActionError(result.message ?? "Could not update the task. Please try again.");
     setActionPending(false);
   }
-  return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl"><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4"><div><button className="mb-2 text-sm font-semibold text-slate-600 hover:text-slate-950" onClick={close} type="button">Back</button><h2 className="text-xl font-semibold text-slate-950">{task.title}</h2><p className="mt-1 text-sm text-slate-500">{clientName(clients, task.clientId)} - {assignmentName(assignments, task.assignmentId)}</p></div><StatusPill status={task.status} /></div><div className="space-y-5 p-5"><div className="grid gap-3 md:grid-cols-2"><Info label="Assignment" value={assignmentName(assignments, task.assignmentId)} /><Info label="Due date" value={task.dueDate + " - " + dueState(task).label} /><Info label="Priority" value={task.priority} /><Info label="Assignees" value={task.assigneeIds.map((id) => userNameByUserId(team, id)).join(", ")} /><Info label="Reviewer" value={userNameByUserId(team, task.reviewerId)} /></div>{task.description && <Info label="Description" value={task.description} />}<div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Workflow actions</h3><div className="mt-3 flex flex-wrap gap-2"><Workflow disabled={!lcCanUpdate || actionPending || task.status === "Under Review" || !lifecycleCanMoveTo(task.status, "In Progress")} label="Start / resume" action={() => runMove("In Progress")} /><Workflow disabled={!lcCanUpdate || actionPending || !lifecycleCanMoveTo(task.status, "Pending Client")} label="Pending client" action={() => runMove("Pending Client")} /><Workflow disabled={!lcCanUpdate || actionPending || !lifecycleCanMoveTo(task.status, "Pending Internal")} label="Pending internal" action={() => runMove("Pending Internal")} /><Workflow disabled={!lcAssignee || actionPending || !lifecycleCanMoveTo(task.status, "Under Review")} label="Move to review" action={() => runMove("Under Review")} /><Workflow disabled={!lcReviewer || actionPending || task.status !== "Under Review"} label="Send back" action={() => runMove("In Progress")} /></div><div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3"><label className="block text-sm font-medium text-slate-700">Closure remarks</label><textarea className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Required before reviewer closes the task" /><button className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" disabled={!lcReviewer || actionPending || task.status !== "Under Review" || !remarks.trim()} onClick={() => runMove("Closed", remarks.trim())} type="button">Close after review</button></div>{actionError && <p className="mt-3 text-sm text-red-600">{actionError}</p>}</div><div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Progress notes</h3><form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); addNote(task.id, note); setNote(""); }}><input className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" disabled={!noteCanUpdate} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add progress note" /><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!noteCanUpdate || !note.trim()} type="submit">Add</button></form><div className="mt-4 space-y-3">{task.notes.map((item) => <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm"><p className="text-slate-700">{item.text}</p><p className="mt-2 text-xs text-slate-500">{item.authorId ? userName(team, item.authorId) : item.author} - {item.createdAt}{item.newStatus ? " - " + (item.oldStatus ?? "Status") + " to " + item.newStatus : ""}</p></div>)}</div></div>{task.closureRemarks && <Info label="Closure remarks" value={task.closureRemarks} />}</div></aside></div>;
+  // Section 14 Step 5B-4c-2: reopen/cancel gates mirror the server permission
+  // matrix fail-closed (backend remains the final authority).
+  // TASK_REOPEN: PO / Firm Admin always; Partner / Manager only if reviewer; staff never.
+  const lcReopen = TASK_LIFECYCLE_ENABLED && (user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin" || ((user.firmRole === "Partner" || user.firmRole === "Manager") && task.reviewerId === (user.userId ?? "")));
+  // TASK_CANCEL: PO / Firm Admin / Partner always; Manager only if creator; staff never.
+  const lcCancel = TASK_LIFECYCLE_ENABLED && (user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin" || user.firmRole === "Partner" || (user.firmRole === "Manager" && task.createdById === (user.userId ?? "")));
+  // Runs the contextual dedicated action (Closed -> reopen; non-terminal -> cancel)
+  // with the shared in-flight guard + inline error; clears the reason on success.
+  async function runAction(action: "reopen" | "cancel") {
+    if (actionPending) return;
+    setActionPending(true);
+    setActionError("");
+    const result = action === "reopen" ? await reopenTask(task.id, actionReason.trim()) : await cancelTask(task.id, actionReason.trim());
+    if (!result.ok) setActionError(result.message ?? "Could not update the task. Please try again.");
+    else setActionReason("");
+    setActionPending(false);
+  }
+  return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl"><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4"><div><button className="mb-2 text-sm font-semibold text-slate-600 hover:text-slate-950" onClick={close} type="button">Back</button><h2 className="text-xl font-semibold text-slate-950">{task.title}</h2><p className="mt-1 text-sm text-slate-500">{clientName(clients, task.clientId)} - {assignmentName(assignments, task.assignmentId)}</p></div><StatusPill status={task.status} /></div><div className="space-y-5 p-5"><div className="grid gap-3 md:grid-cols-2"><Info label="Assignment" value={assignmentName(assignments, task.assignmentId)} /><Info label="Due date" value={task.dueDate + " - " + dueState(task).label} /><Info label="Priority" value={task.priority} /><Info label="Assignees" value={task.assigneeIds.map((id) => userNameByUserId(team, id)).join(", ")} /><Info label="Reviewer" value={userNameByUserId(team, task.reviewerId)} /></div>{task.description && <Info label="Description" value={task.description} />}<div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Workflow actions</h3><div className="mt-3 flex flex-wrap gap-2"><Workflow disabled={!lcCanUpdate || actionPending || task.status === "Under Review" || !lifecycleCanMoveTo(task.status, "In Progress")} label="Start / resume" action={() => runMove("In Progress")} /><Workflow disabled={!lcCanUpdate || actionPending || !lifecycleCanMoveTo(task.status, "Pending Client")} label="Pending client" action={() => runMove("Pending Client")} /><Workflow disabled={!lcCanUpdate || actionPending || !lifecycleCanMoveTo(task.status, "Pending Internal")} label="Pending internal" action={() => runMove("Pending Internal")} /><Workflow disabled={!lcAssignee || actionPending || !lifecycleCanMoveTo(task.status, "Under Review")} label="Move to review" action={() => runMove("Under Review")} /><Workflow disabled={!lcReviewer || actionPending || task.status !== "Under Review"} label="Send back" action={() => runMove("In Progress")} /></div><div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3"><label className="block text-sm font-medium text-slate-700">Closure remarks</label><textarea className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Required before reviewer closes the task" /><button className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" disabled={!lcReviewer || actionPending || task.status !== "Under Review" || !remarks.trim()} onClick={() => runMove("Closed", remarks.trim())} type="button">Close after review</button></div>{task.status !== "Cancelled" && <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3"><label className="block text-sm font-medium text-slate-700">{task.status === "Closed" ? "Reopen reason" : "Cancellation reason"}</label><input className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" disabled={actionPending} value={actionReason} onChange={(event) => setActionReason(event.target.value)} placeholder={task.status === "Closed" ? "Required before reopening this closed task" : "Required before cancelling this task"} />{task.status === "Closed" ? <button className="mt-3 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50" disabled={!lcReopen || actionPending || !actionReason.trim()} onClick={() => runAction("reopen")} type="button">Reopen task</button> : <button className="mt-3 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50" disabled={!lcCancel || actionPending || !actionReason.trim()} onClick={() => runAction("cancel")} type="button">Cancel task</button>}</div>}{actionError && <p className="mt-3 text-sm text-red-600">{actionError}</p>}</div><div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Progress notes</h3><form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); addNote(task.id, note); setNote(""); }}><input className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" disabled={!noteCanUpdate} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add progress note" /><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!noteCanUpdate || !note.trim()} type="submit">Add</button></form><div className="mt-4 space-y-3">{task.notes.map((item) => <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm"><p className="text-slate-700">{item.text}</p><p className="mt-2 text-xs text-slate-500">{item.authorId ? userName(team, item.authorId) : item.author} - {item.createdAt}{item.newStatus ? " - " + (item.oldStatus ?? "Status") + " to " + item.newStatus : ""}</p></div>)}</div></div>{task.closureRemarks && <Info label="Closure remarks" value={task.closureRemarks} />}</div></aside></div>;
 }
 
 function ModalFrame({ children, close, subtitle, title }: { children: React.ReactNode; close: () => void; subtitle: string; title: string }) {
