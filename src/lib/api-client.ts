@@ -153,6 +153,20 @@ export interface TaskDTO {
   updatedAt: string;
 }
 
+// Section 14 Step 5B-4d-2a: a task progress note as returned by
+// GET /api/tasks/[id]/notes. authorId is a PlatformUser userId (resolve names
+// with the userId-based lookup). oldStatus/newStatus are non-null only on
+// lifecycle-attached notes; status-less notes carry null.
+export interface TaskNoteDTO {
+  id: string;
+  taskId: string;
+  authorId: string;
+  note: string;
+  oldStatus: string | null;
+  newStatus: string | null;
+  createdAt: string;
+}
+
 export interface TeamMemberDTO {
   firmMemberId: string;
   userId: string;
@@ -285,6 +299,9 @@ export const tasksApi = {
     input: Partial<{ title: string; description: string; priority: string; dueDate: string; status: string; note: string; reviewerId: string }>,
   ) => apiPatch<TaskDTO>(`/api/tasks/${id}`, input),
   addNote: (id: string, note: string) => apiPost<unknown>(`/api/tasks/${id}/notes`, { note }),
+  // Section 14 Step 5B-4d-2a: notes-read API. GET /api/tasks/[id]/notes returns
+  // the task's notes newest-first as `{ items }`. Read-only; not audited.
+  listNotes: (id: string) => apiGet<{ items: TaskNoteDTO[] }>(`/api/tasks/${id}/notes`),
   // Section 14 Step 5B-4d-1: the assignees route schema is strict set semantics
   // `{ add?: string[], remove?: string[] }` (at least one required; final count
   // must stay in [1, MAX_ASSIGNEES_PER_TASK]). The previous `{ assigneeIds }`

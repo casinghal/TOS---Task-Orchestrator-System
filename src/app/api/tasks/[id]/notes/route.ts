@@ -142,3 +142,93 @@ export async function POST(
     return err("Unable to add note.", 500);
   }
 }
+
+// --- GET /api/tasks/[id]/notes --------------------------------------------
+// Section 14 Step 5B-4d-2a: notes-read API. Returns the task's progress notes
+// (status-less + lifecycle-attached) so the UI can render notes from the API
+// instead of local state. Read-only: no ActivityLog is written. Auth / cross-
+// firm 404 / ARTICLE_STAFF self-scope mirror GET /api/tasks/[id] exactly. The
+// task-list GET is intentionally NOT changed (no notes over-fetch there).
+
+export async function GET(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  if (!process.env.DATABASE_URL) return databaseUnavailable();
+
+  const auth = await requireAuth(request, Action.TASK_VIEW);
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
+
+  const { id } = await context.params;
+
+  // Step 4F-2: cross-firm impersonation.
+  const url = new URL(request.url);
+  const impersonateFirmId = url.searchParams.get("impersonateFirmId");
+  const ctx = await resolveCrossFirmContext({
+    request,
+    session,
+    candidateFirmId: impersonateFirmId,
+    entityType: "Task",
+    entityId: id,
+    routeLabel: "GET /api/tasks/[id]/notes",
+  });
+  if (!ctx.ok) return ctx.response;
+  const { effectiveFirmId, isImpersonation } = ctx;
+
+  try {
+    const task = await prisma.task.findUnique({
+      where: { id },
+      include: { assignees: { select: { userId: true } } },
+    });
+
+    if (!task) {
+      return err("Task not found.", 404);
+    }
+    if (task.firmId !== effectiveFirmId) {
+      console.warn("Cross-firm task notes-read attempt", {
+        effectiveFirmId,
+        attemptedTaskId: id,
+        actorId: session.userId,
+        route: "GET /api/tasks/[id]/notes",
+      });
+      return err("Task not found.", 404);
+    }
+
+    // ARTICLE_STAFF visibility per Decision C1: only own (creator) or
+    // assigned tasks; out-of-scope returns 404 (not 403) to avoid leaking
+    // that the id exists. Step 4F-2 D2: PLATFORM_OWNER cross-firm
+    // impersonation bypasses the home-firm self-scope.
+    if (
+      !isImpersonation &&
+      session.firmRole === FirmRole.ARTICLE_STAFF
+    ) {
+      const isCreator = task.createdById === session.userId;
+      const isAssignee = task.assignees.some(
+        (a) => a.userId === session.userId,
+      );
+      if (!isCreator && !isAssignee) {
+        return err("Task not found.", 404);
+      }
+    }
+
+    // Read-only (no audit). Newest-first for drawer presentation.
+    const items = await prisma.taskNote.findMany({
+      where: { taskId: id },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        taskId: true,
+        authorId: true,
+        note: true,
+        oldStatus: true,
+        newStatus: true,
+        createdAt: true,
+      },
+    });
+
+    return ok({ items });
+  } catch {
+    return err("Unable to load notes.", 500);
+  }
+}
