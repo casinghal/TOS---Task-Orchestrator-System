@@ -72,6 +72,9 @@ type WorkMapActions = {
   reassignTask: (taskId: string, assigneeId: string) => void;
   resequenceTask: (taskId: string, direction: "up" | "down") => void;
   updateReviewer: (taskId: string, reviewerId: string) => void;
+  // Section 14 Step 5B-4d-1: task id of the people update currently in flight
+  // (null when idle). Row selects disable while a people update is pending.
+  peoplePendingTaskId: string | null;
 };
 
 const todayIso = "2026-04-27";
@@ -125,6 +128,13 @@ const TASK_CREATE_ENABLED = true;
 // assignee update, reviewer update, and resequence stay parked on
 // TASK_WRITES_ENABLED (false). Reopen and Cancel are deferred to 5B-4c-2.
 const TASK_LIFECYCLE_ENABLED = true;
+
+// Section 14 Step 5B-4d-1: task PEOPLE update cutover (assignee swap + reviewer
+// change). The row selects write through PATCH /api/tasks/[id]/assignees and
+// PATCH /api/tasks/[id] { reviewerId } and refetch from the API. Notes (no read
+// API yet; 5B-4d-2) and resequence (no API; 5B-4e) stay parked on
+// TASK_WRITES_ENABLED (false).
+const TASK_PEOPLE_ENABLED = true;
 
 // FirmRole code (API) -> UI display string.
 function firmRoleCodeToUi(code: string): FirmRole {
@@ -475,6 +485,9 @@ export default function Home() {
   const [taskList, setTaskList] = useState<Task[]>(seedTasks);
   const [tasksLoading, setTasksLoading] = useState(true);
   const [tasksError, setTasksError] = useState<ApiError | null>(null);
+  // Section 14 Step 5B-4d-1: people-update in-flight guard + controlled notice.
+  const [peoplePendingTaskId, setPeoplePendingTaskId] = useState<string | null>(null);
+  const [peopleNotice, setPeopleNotice] = useState<string | null>(null);
   const [clientList, setClientList] = useState<Client[]>(seedClients);
   const [clientsLoading, setClientsLoading] = useState(true);
   const [clientsError, setClientsError] = useState<ApiError | null>(null);
@@ -672,6 +685,11 @@ export default function Home() {
   const selectedTask = taskList.find((task) => task.id === selectedTaskId) ?? null;
   const isPlatformOwner = user?.platformRole === "Platform Owner";
   const canCreateTask = Boolean(user && creatorRoles.includes(user.firmRole)) && TASK_CREATE_ENABLED;
+  // Section 14 Step 5B-4d-1: coordination predicate for people updates (assignee
+  // swap / reviewer change). Matches the row-select `canCoordinate` gate
+  // (creator roles OR Platform Owner) and is independent of TASK_CREATE_ENABLED.
+  // Backend (TASK_EDIT; ARTICLE_STAFF route 403) remains the final authority.
+  const canCoordinateTasks = Boolean(user && (creatorRoles.includes(user.firmRole) || user.platformRole === "Platform Owner"));
   const allowedSections = user ? navItems.filter((item) => canAccessSection(user, item.id)) : [];
   const defaultSection = allowedSections[0]?.id ?? "dashboard";
   const currentSection = user && canAccessSection(user, activeSection) ? activeSection : defaultSection;
@@ -976,24 +994,55 @@ export default function Home() {
     return refetchTasksAfterLifecycle();
   }
 
-  function reassignTask(taskId: string, assigneeId: string) {
-    if (!TASK_WRITES_ENABLED) return; // Section 14 Step 5B-4a: task writes deferred to 5B-4d.
-    if (!user || !canCreateTask || !assigneeId) return;
+  // Section 14 Step 5B-4d-1: assignee swap cut over to the API (source of
+  // truth). Single-assignee UI semantics preserved: the row select swaps
+  // assigneeIds[0] via set-semantics PATCH /api/tasks/[id]/assignees
+  // `{ add: [new], remove: [old] }` (min-one-assignee rule holds naturally).
+  // On success the list refetches from the API. No local task mutation, no
+  // log(), no localStorage write. Terminal statuses are fail-closed in the UI;
+  // the backend permission matrix (TASK_EDIT; ARTICLE_STAFF route-layer 403)
+  // remains the final authority.
+  async function reassignTask(taskId: string, assigneeId: string) {
+    if (!TASK_PEOPLE_ENABLED || !user || !canCoordinateTasks || !assigneeId || peoplePendingTaskId) return;
     const target = taskList.find((task) => task.id === taskId);
-    const assignee = teamList.find((member) => member.id === assigneeId && member.isActive);
+    const assignee = teamList.find((member) => member.userId === assigneeId && member.isActive);
     if (!target || !assignee) return;
-    setTaskList((current) => current.map((task) => task.id === taskId ? { ...task, assigneeIds: [assigneeId], updatedAt: "Just now" } : task));
-    log(user.id, "Reassigned task", "Task", `${target.title} to ${assignee.name}`);
+    if (target.status === "Closed" || target.status === "Cancelled") return;
+    const current = target.assigneeIds[0];
+    if (current === assigneeId) return;
+    setPeoplePendingTaskId(taskId);
+    setPeopleNotice(null);
+    try {
+      await tasksApi.setAssignees(taskId, { add: [assigneeId], ...(current ? { remove: [current] } : {}) });
+      await refetchTasksAfterLifecycle();
+    } catch (error: unknown) {
+      setPeopleNotice(error instanceof ApiError ? taskLifecycleErrorMessage(error) : "Could not update the assignee. Please try again.");
+    } finally {
+      setPeoplePendingTaskId(null);
+    }
   }
 
-  function updateReviewer(taskId: string, reviewerId: string) {
-    if (!TASK_WRITES_ENABLED) return; // Section 14 Step 5B-4a: task writes deferred to 5B-4d.
-    if (!user || !canCreateTask || !reviewerId) return;
+  // Section 14 Step 5B-4d-1: reviewer change cut over to the API via
+  // PATCH /api/tasks/[id] { reviewerId } (server validates the reviewer is an
+  // active firm member and audits TASK_REVIEWER_CHANGE). Same refetch /
+  // fail-closed / no-local-mutation rules as reassignTask.
+  async function updateReviewer(taskId: string, reviewerId: string) {
+    if (!TASK_PEOPLE_ENABLED || !user || !canCoordinateTasks || !reviewerId || peoplePendingTaskId) return;
     const target = taskList.find((task) => task.id === taskId);
-    const reviewer = teamList.find((member) => member.id === reviewerId && member.isActive);
+    const reviewer = teamList.find((member) => member.userId === reviewerId && member.isActive);
     if (!target || !reviewer) return;
-    setTaskList((current) => current.map((task) => task.id === taskId ? { ...task, reviewerId, updatedAt: "Just now" } : task));
-    log(user.id, "Changed task reviewer", "Task", `${target.title} to ${reviewer.name}`);
+    if (target.status === "Closed" || target.status === "Cancelled") return;
+    if (target.reviewerId === reviewerId) return;
+    setPeoplePendingTaskId(taskId);
+    setPeopleNotice(null);
+    try {
+      await tasksApi.update(taskId, { reviewerId });
+      await refetchTasksAfterLifecycle();
+    } catch (error: unknown) {
+      setPeopleNotice(error instanceof ApiError ? taskLifecycleErrorMessage(error) : "Could not update the reviewer. Please try again.");
+    } finally {
+      setPeoplePendingTaskId(null);
+    }
   }
 
   function resequenceTask(taskId: string, direction: "up" | "down") {
@@ -1107,7 +1156,7 @@ export default function Home() {
   }
 
   const memberActions: MemberActions = { resetPassword: resetMemberPassword, resettingId: resettingMemberId, setActive: setMemberActive, updateRole: updateMemberRole };
-  const workMapActions: WorkMapActions = { reassignTask, resequenceTask, updateReviewer };
+  const workMapActions: WorkMapActions = { reassignTask, resequenceTask, updateReviewer, peoplePendingTaskId };
 
   return (
     <main className="min-h-screen overflow-x-hidden text-slate-900">
@@ -1123,6 +1172,7 @@ export default function Home() {
               : tasksError
                 ? <div className="rounded-lg border border-red-300/40 bg-red-50 p-4 text-sm text-red-800" role="alert">Could not load tasks. Please retry.</div>
                 : <TasksView assignments={assignmentList} stats={stats} tasks={visibleTasks} allTasks={taskList} clients={clientList} team={teamList} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} view={viewMode} setView={setViewMode} openTask={setSelectedTaskId} user={user} />)}
+            {peopleNotice && (currentSection === "assignments" || currentSection === "projectReview") && <div className="rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-800" role="alert">{peopleNotice}</div>}
             {currentSection === "assignments" && <AssignmentsView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openClient={CLIENT_WRITES_ENABLED ? () => setModal("client") : () => {}} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
             {currentSection === "projectReview" && <ProjectReviewView actions={workMapActions} assignments={assignmentList} clients={clientList} openAssignment={() => setModal("assignment")} openTask={setSelectedTaskId} tasks={taskList} team={teamList} user={user} />}
             {currentSection === "clients" && <ClientsView assignments={assignmentList} clients={clientList} tasks={taskList} loading={clientsLoading} error={clientsError} notice={clientsNotice} open={CLIENT_WRITES_ENABLED ? () => setModal("client") : () => {}} />}
@@ -1486,8 +1536,8 @@ function AssignmentTreeItem({ actions, assignment, canCoordinate, openTask, task
       <div className="space-y-2">{tasks.map((task, index) => <div key={task.id} className="grid gap-2 rounded-lg border border-slate-100 bg-white p-3 text-sm md:grid-cols-[1.2fr_0.55fr_0.85fr_0.85fr_0.7fr_0.55fr] md:items-center" title="Task mapping row">
         <button className="text-left font-semibold text-slate-950 hover:text-blue-700" onClick={() => openTask(task.id)} type="button">{task.title}</button>
         <StatusPill status={task.status} />
-        <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate || !TASK_WRITES_ENABLED} onChange={(event) => actions.reassignTask(task.id, event.target.value)} title="Reassign task owner" value={task.assigneeIds[0] ?? ""}>{team.filter((member) => member.isActive && member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.userId}>{member.name}</option>)}</select>
-        <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate || !TASK_WRITES_ENABLED} onChange={(event) => actions.updateReviewer(task.id, event.target.value)} title="Change reviewer" value={task.reviewerId}>{team.filter((member) => member.isActive && member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.userId}>{member.name}</option>)}</select>
+        <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate || !TASK_PEOPLE_ENABLED || actions.peoplePendingTaskId !== null || task.status === "Closed" || task.status === "Cancelled"} onChange={(event) => actions.reassignTask(task.id, event.target.value)} title="Reassign task owner" value={task.assigneeIds[0] ?? ""}>{team.filter((member) => member.isActive && member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.userId}>{member.name}</option>)}</select>
+        <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate || !TASK_PEOPLE_ENABLED || actions.peoplePendingTaskId !== null || task.status === "Closed" || task.status === "Cancelled"} onChange={(event) => actions.updateReviewer(task.id, event.target.value)} title="Change reviewer" value={task.reviewerId}>{team.filter((member) => member.isActive && member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.userId}>{member.name}</option>)}</select>
         <span className={dueState(task).tone + " text-xs font-semibold"}>{dueState(task).label} <span className="text-slate-400">{task.dueDate}</span></span>
         <div className="flex gap-1"><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || !TASK_WRITES_ENABLED || index === 0} onClick={() => actions.resequenceTask(task.id, "up")} title="Move task earlier" type="button">Up</button><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || !TASK_WRITES_ENABLED || index === tasks.length - 1} onClick={() => actions.resequenceTask(task.id, "down")} title="Move task later" type="button">Down</button></div>
       </div>)}</div>
@@ -1593,8 +1643,8 @@ function ProjectTaskRow({ actions, canCoordinate, index, openTask, task, taskCou
   const risk = taskRisk(task);
   return <div className="grid gap-2 rounded-lg border border-slate-100 bg-white p-3 text-sm md:grid-cols-[1.2fr_0.8fr_0.8fr_0.7fr_0.55fr] md:items-center" title="Project task accountability row">
     <button className="text-left font-semibold text-slate-950 hover:text-blue-700" onClick={() => openTask(task.id)} type="button">{task.title}<span className="mt-1 block text-xs font-normal text-slate-500">{task.priority} priority</span></button>
-    <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate || !TASK_WRITES_ENABLED} onChange={(event) => actions.reassignTask(task.id, event.target.value)} title="Reassign assignee" value={task.assigneeIds[0] ?? ""}>{team.filter((member) => member.isActive && member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.userId}>{member.name}</option>)}</select>
-    <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate || !TASK_WRITES_ENABLED} onChange={(event) => actions.updateReviewer(task.id, event.target.value)} title="Change reviewer" value={task.reviewerId}>{team.filter((member) => member.isActive && member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.userId}>{member.name}</option>)}</select>
+    <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate || !TASK_PEOPLE_ENABLED || actions.peoplePendingTaskId !== null || task.status === "Closed" || task.status === "Cancelled"} onChange={(event) => actions.reassignTask(task.id, event.target.value)} title="Reassign assignee" value={task.assigneeIds[0] ?? ""}>{team.filter((member) => member.isActive && member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.userId}>{member.name}</option>)}</select>
+    <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate || !TASK_PEOPLE_ENABLED || actions.peoplePendingTaskId !== null || task.status === "Closed" || task.status === "Cancelled"} onChange={(event) => actions.updateReviewer(task.id, event.target.value)} title="Change reviewer" value={task.reviewerId}>{team.filter((member) => member.isActive && member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.userId}>{member.name}</option>)}</select>
     <div><p className={dueState(task).tone + " text-xs font-semibold"}>{dueState(task).label}</p><p className="text-xs text-slate-500">{task.dueDate}</p></div>
     <div className="flex flex-wrap items-center gap-1"><span className={riskTone(risk) + " rounded-full px-2 py-1 text-xs font-semibold"}>{risk}</span><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || !TASK_WRITES_ENABLED || index === 0} onClick={() => actions.resequenceTask(task.id, "up")} title="Move earlier in sequence" type="button">Up</button><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || !TASK_WRITES_ENABLED || index === taskCount - 1} onClick={() => actions.resequenceTask(task.id, "down")} title="Move later in sequence" type="button">Down</button></div>
   </div>;

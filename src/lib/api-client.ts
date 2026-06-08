@@ -282,11 +282,15 @@ export const tasksApi = {
   }) => apiPost<TaskDTO>("/api/tasks", input),
   update: (
     id: string,
-    input: Partial<{ title: string; description: string; priority: string; dueDate: string; status: string; note: string }>,
+    input: Partial<{ title: string; description: string; priority: string; dueDate: string; status: string; note: string; reviewerId: string }>,
   ) => apiPatch<TaskDTO>(`/api/tasks/${id}`, input),
   addNote: (id: string, note: string) => apiPost<unknown>(`/api/tasks/${id}/notes`, { note }),
-  setAssignees: (id: string, assigneeIds: string[]) =>
-    apiPatch<TaskDTO>(`/api/tasks/${id}/assignees`, { assigneeIds }),
+  // Section 14 Step 5B-4d-1: the assignees route schema is strict set semantics
+  // `{ add?: string[], remove?: string[] }` (at least one required; final count
+  // must stay in [1, MAX_ASSIGNEES_PER_TASK]). The previous `{ assigneeIds }`
+  // body would have been rejected by the `.strict()` schema.
+  setAssignees: (id: string, input: { add?: string[]; remove?: string[] }) =>
+    apiPatch<TaskDTO>(`/api/tasks/${id}/assignees`, input),
   close: (id: string, closureRemarks?: string) =>
     apiPost<TaskDTO>(`/api/tasks/${id}/close`, closureRemarks ? { closureRemarks } : undefined),
   // Section 14 Step 5B-4c-2: the reopen/cancel routes Zod-require a non-empty
