@@ -1788,3 +1788,24 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Status**: 5B-4d-2b code completed, deployed, and verified at `b16f883`. After this documentation sync is committed and pushed, 5B-4d-2b is closed and Step 5B-4d (assignees + reviewer + notes) is fully closed; **5B-4e (resequence disposition + stabilization) may begin plan-first only after this 5B-4d-2b doc-sync is committed, pushed, and reviewed**.
 
 ---
+
+## C-2026-06-10-02 - Section 14 Step 5B-4e resequence disposition + stabilization (remove dead resequence controls): documentation sync
+
+- **Date**: 2026-06-10
+- **Task**: Record Section 14 Step 5B-4e. Disposition (Option A, per D-2026-06-10-01): remove the dead manual task resequence Up/Down controls and the dead local-only `resequenceTask` handler from the UI; do NOT build a persisted resequence/order API now. Frontend-only stabilization; `taskSequence()` retained for default ordering. No backend route / schema / migration / Auth / env / package change.
+- **Source commit**: `22a7bd1` (`Section 14 Step 5B-4e: Remove parked task resequence controls`). Prior repo/doc HEAD was `24da44a` (runtime marker `b16f883` from 5B-4d-2b). Netlify production deploy `Production: main@22a7bd1 - Published` confirmed green. Runtime/code SHA advances `b16f883` -> `22a7bd1`.
+- **Code changed (in `22a7bd1`, one file: `src/app/page.tsx`)**:
+  - Removed the manual resequence Up/Down controls (AssignmentTreeItem cell + ProjectTaskRow buttons) and the dead local-only `resequenceTask` handler; removed `WorkMapActions.resequenceTask` and the `workMapActions` property; removed the now-unused `index` (AssignmentTreeItem map) and `index`/`taskCount` (ProjectTaskRow signature + call site); trimmed AssignmentTreeItem grid 6 -> 5 columns; kept the ProjectTaskRow risk badge.
+  - Removed the now-unused `TASK_WRITES_ENABLED` flag (its last live consumer was the removed resequence controls; every other task write is on its own flag - `TASK_CREATE_ENABLED` / `TASK_LIFECYCLE_ENABLED` / `TASK_PEOPLE_ENABLED` / `TASK_NOTES_ENABLED`).
+  - `taskSequence()` left intact (default-order fallback; still used by the Assignments / Project Review sorts). Default ordering behaviour unchanged - `task.sequence` was never set from the API.
+- **Decision**: real persisted resequence/order API deferred - no schema / migration / route for resequence now. Reason: not required for TAMS readiness; avoids the only remaining Step-5 migration risk; removes dead local-only UI; keeps the server source-of-truth clean. Recorded as **D-2026-06-10-01**; revisit only if user-controlled manual ordering becomes a product requirement.
+- **Static validation**: `git diff --name-only` = `src/app/page.tsx`; `git diff --check` clean; Windows `npm run uat:check` passed (eslint + prisma validate + next build).
+- **Visual smoke (read-only, localhost)**: Assignments and Project Review render cleanly; DOM shows **zero** Up/Down controls; no POST/PATCH/DELETE; no console errors. Row-level checks (reassign/reviewer selects + risk badge present) were not visually verifiable because the firm had **zero tasks** at the time; accepted because the code scope was a structural removal that preserved those controls and `uat:check` passed.
+- **Production safe smoke (signed-out)**: `GET /api/tasks/zz_smoke_5b4e_nonexistent/notes` = 401 Unauthorized, body `{"ok":false,"message":"Authentication required."}` (auth gate fires before task lookup). No production POST/PATCH/DELETE, no Supabase mutation, no test data.
+- **Files changed (this documentation-only wave)**: `CHANGE_LOG.md` (this entry); `CURRENT_STATUS.md`; `MASTER_PROJECT.md`; `DECISION_LOG.md` (D-2026-06-10-01).
+- **Reason**: per Synchronization Rule #8, `22a7bd1` is runtime-bearing; this wave advances the SHA marker and records 5B-4e closure.
+- **Out of scope (intentional)**: no source change in this doc wave; no schema / migration / API / package / env / config change; no Netlify/Supabase change; no `AGENTS.md` change; no 5B-5 work; no staging/commit/push in this wave.
+- **Testing required**: none beyond doc review. Validated via Windows `npm run uat:check`, the read-only visual smoke, and the production safe smoke above.
+- **Status**: 5B-4e code completed, deployed, and verified at `22a7bd1`. After this documentation sync is committed and pushed, 5B-4e is closed; **5B-5 (activity + modules) may begin plan-first only after this 5B-4e doc-sync is committed, pushed, and reviewed**, then 5B-final (remove localStorage source-of-truth).
+
+---
