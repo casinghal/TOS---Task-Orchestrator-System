@@ -328,7 +328,11 @@ export const activityApi = {
     if (params?.from) search.set("from", params.from);
     if (params?.to) search.set("to", params.to);
     const qs = search.toString();
-    return apiGet<ActivityDTO[]>(`/api/activity${qs ? `?${qs}` : ""}`);
+    // Section 14 Step 5B-5a: GET /api/activity returns ok({ items, pagination }),
+    // not a bare array. Typed to match the route shape.
+    return apiGet<{ items: ActivityDTO[]; pagination: { page: number; pageSize: number; total: number } }>(
+      `/api/activity${qs ? `?${qs}` : ""}`,
+    );
   },
 };
 

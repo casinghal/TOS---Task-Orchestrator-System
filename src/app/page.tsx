@@ -36,13 +36,11 @@ import {
   assignments as seedAssignments,
   clients as seedClients,
   firm,
-  initialActivityEvents,
   initialModuleFlags,
   plans,
   statuses,
   tasks as seedTasks,
   teamMembers as seedTeam,
-  type ActivityEvent,
   type Assignment,
   type Client,
   type FirmProfile,
@@ -53,7 +51,7 @@ import {
   type TeamMember,
 } from "@/lib/workspace-data";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
-import { clientsApi, teamApi, meApi, tasksApi, ApiError, type ClientDTO, type TeamMemberDTO, type MeDTO, type TaskDTO, type TaskNoteDTO } from "@/lib/api-client";
+import { clientsApi, teamApi, meApi, tasksApi, activityApi, ApiError, type ClientDTO, type TeamMemberDTO, type MeDTO, type TaskDTO, type TaskNoteDTO, type ActivityDTO } from "@/lib/api-client";
 // Section 14 Step 5B-4c-1a: reuse the server transition matrix for transition-aware
 // UI gating (no drift). Pure constants module; client-safe. Code-vocabulary type
 // aliased to avoid colliding with the UI-label TaskStatus from workspace-data.
@@ -506,7 +504,11 @@ export default function Home() {
   const [identityError, setIdentityError] = useState<ApiError | "no_profile" | null>(null);
   const [firmProfile, setFirmProfile] = useState<FirmProfile>(firm);
   const [firmDirectory, setFirmDirectory] = useState<FirmProfile[]>([firm]);
-  const [activity, setActivity] = useState<ActivityEvent[]>(initialActivityEvents);
+  // Section 14 Step 5B-5a: activity feed is the server ActivityLog only (GET /api/activity).
+  // No local activity state, no seed, no localStorage source of truth.
+  const [activityList, setActivityList] = useState<ActivityDTO[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [activityError, setActivityError] = useState<ApiError | null>(null);
   const [modules, setModules] = useState<ModuleFlag[]>(initialModuleFlags);
   const [isHydrated, setIsHydrated] = useState(false);
   const [loginTip, setLoginTip] = useState(loginTips[0]);
@@ -523,7 +525,6 @@ export default function Home() {
           team?: TeamMember[];
           firm?: FirmProfile;
           firms?: FirmProfile[];
-          activity?: ActivityEvent[];
           modules?: ModuleFlag[];
         };
         if (saved.assignments) setAssignmentList(saved.assignments);
@@ -532,7 +533,7 @@ export default function Home() {
         // Section 14 Step 5B-3a: team is no longer hydrated from localStorage; it loads from GET /api/team.
         if (saved.firm) setFirmProfile(saved.firm);
         if (saved.firms) setFirmDirectory(saved.firms);
-        if (saved.activity) setActivity(saved.activity);
+        // Section 14 Step 5B-5a: activity is no longer hydrated from localStorage; it loads from GET /api/activity.
         if (saved.modules) setModules(saved.modules);
       }
     } finally {
@@ -548,12 +549,12 @@ export default function Home() {
       // Section 14 Step 5B-1: clients excluded from persist; API is source of truth.
       // The pre-cutover `clients` key already in localStorage is left intact as backup.
       // Section 14 Step 5B-3a: team excluded from persist; API is source of truth. Pre-cutover team cache left intact.
+      // Section 14 Step 5B-5a: activity excluded from persist; API is source of truth.
       firm: firmProfile,
       firms: firmDirectory,
-      activity,
       modules,
     }));
-  }, [activity, assignmentList, firmDirectory, firmProfile, isHydrated, modules]);
+  }, [assignmentList, firmDirectory, firmProfile, isHydrated, modules]);
 
   // Section 14 Step 5B-3a: resolve the current-user identity from GET /api/me
   // (server-authoritative platformRole + firmRole). No seed/email identity match.
@@ -678,6 +679,34 @@ export default function Home() {
     };
   }, [sessionUserId]);
 
+  // Section 14 Step 5B-5a: activity read cutover. The feed is the server ActivityLog
+  // (GET /api/activity) only. Load once a session exists; on failure show a controlled
+  // error - never fall back to seed/localStorage activity. Strict-Mode-safe via the
+  // `active` cancellation guard (no state write after unmount / double-invoke).
+  useEffect(() => {
+    if (!sessionUserId) return;
+    let active = true;
+    // Section 14 Step 5B-5a: do not setState synchronously in the effect body
+    // (react-hooks/set-state-in-effect). `activityLoading` initializes to true;
+    // setActivityLoading(false) runs only in the async resolve/reject paths.
+    activityApi
+      .list()
+      .then((result) => {
+        if (!active) return;
+        setActivityList(result.items);
+        setActivityError(null);
+        setActivityLoading(false);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setActivityError(error instanceof ApiError ? error : new ApiError("server", 0, "Unable to load activity."));
+        setActivityLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [sessionUserId]);
+
   // Section 14 Step 5B-3a: the current user comes from /api/me (server-authoritative),
   // not from a teamList lookup by id/email.
   const user = currentUser;
@@ -709,10 +738,6 @@ export default function Home() {
     underReview: visibleTasks.filter((task) => task.status === "Under Review").length,
     closed: visibleTasks.filter((task) => task.status === "Closed").length,
   }), [visibleTasks]);
-
-  function log(actorId: string, action: string, entity: string, detail: string) {
-    setActivity((current) => [{ id: "a_" + Date.now(), actorId, action, entity, detail, createdAt: "Just now" }, ...current]);
-  }
 
   // Section 14 Step 5B-4b: task CREATE cutover. Async values handler (mirrors
   // createClient/createMember): POST /api/tasks then refetch GET /api/tasks and
@@ -758,10 +783,9 @@ export default function Home() {
     if (!CLIENT_WRITES_ENABLED) return { ok: false, message: "Client creation is not available." };
     if (!user) return { ok: false, message: "No active session. Please sign in again." };
     try {
-      const created = await clientsApi.create(values);
-      // Log to the local activity feed only after the create succeeds (the feed is
-      // still local until 5B-5; the server also writes a CLIENT_CREATE audit row).
-      log(user.id, "Created client", "Client", created.name);
+      await clientsApi.create(values);
+      // Section 14 Step 5B-5a: no local activity log. The server writes the CLIENT_CREATE
+      // audit row, which the feed renders from GET /api/activity.
     } catch (error: unknown) {
       return { ok: false, message: error instanceof ApiError ? clientCreateErrorMessage(error) : "Unable to add client. Please try again." };
     }
@@ -825,7 +849,9 @@ export default function Home() {
       status: "Active",
     };
     setAssignmentList((current) => [nextAssignment, ...current]);
-    log(user.id, "Created assignment", "Assignment", `${clientName(clientList, clientId)} - ${name}`);
+    // Section 14 Step 5B-5a: no local activity log. Assignments are a local-only
+    // domain (no API yet), so assignment creation will not appear in the server
+    // activity feed until that domain is cut over.
     setModal(null);
     setActiveSection("assignments");
   }
@@ -1057,13 +1083,14 @@ export default function Home() {
 
   function toggleModule(moduleId: string) {
     if (!user || !isPlatformOwner) return;
-    const item = modules.find((module) => module.id === moduleId);
     setModules((current) => current.map((module) => module.id === moduleId ? {
       ...module,
       enabled: !module.enabled,
       visibility: module.enabled ? "Hidden" : "Visible",
     } : module));
-    log(user.id, "Changed module access", "ModuleFlag", item?.name ?? "Module");
+    // Section 14 Step 5B-5a: no local activity log. Module access is still a local
+    // toggle (modules cutover is 5B-5b); once it writes through PATCH /api/modules
+    // the server MODULE_ACCESS_CHANGE audit row will surface in the activity feed.
   }
 
   async function login(email: string, password: string) {
@@ -1122,7 +1149,7 @@ export default function Home() {
         team: teamList,
         firm: firmProfile,
         firms: firmDirectory,
-        activity,
+        activity: activityList,
         modules,
       },
     };
@@ -1175,7 +1202,7 @@ export default function Home() {
               saveFirms={setFirmDirectory}
               user={user}
             />}
-            {currentSection === "admin" && <AdminView actions={memberActions} user={user} tasks={taskList} clients={clientList} team={teamList} activity={activity} modules={modules} toggleModule={toggleModule} openTeam={TEAM_WRITES_ENABLED ? () => setModal("team") : () => {}} firm={firmProfile} />}
+            {currentSection === "admin" && <AdminView actions={memberActions} user={user} tasks={taskList} clients={clientList} team={teamList} activity={activityList} activityLoading={activityLoading} activityError={activityError} modules={modules} toggleModule={toggleModule} openTeam={TEAM_WRITES_ENABLED ? () => setModal("team") : () => {}} firm={firmProfile} />}
           </div>
         </section>
       </div>
@@ -1792,7 +1819,7 @@ function ReportsView({ clients, tasks, team }: { clients: Client[]; tasks: Task[
   return <div className="space-y-4"><div className="grid gap-3 md:grid-cols-4"><ReportPanel title="Active tasks" value={String(active.length)} detail="Open through review" icon={ClipboardList} /><ReportPanel title="Overdue" value={String(overdue)} detail="Needs attention" icon={AlertTriangle} /><ReportPanel title="Review queue" value={String(tasks.filter((task) => task.status === "Under Review").length)} detail="Pending closure" icon={Eye} /><ReportPanel title="Top workload" value={busiest?.name ?? "None"} detail="Assignee load" icon={Users} /></div><div className="grid gap-4 xl:grid-cols-2"><div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-semibold text-slate-950">Status distribution</h2><div className="mt-4 grid gap-3 md:grid-cols-3">{statuses.map((status) => <div key={status} className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-medium text-slate-500">{status}</p><p className="mt-2 text-2xl font-semibold text-slate-950">{tasks.filter((task) => task.status === status).length}</p></div>)}</div></div><div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-semibold text-slate-950">Client-wise workload</h2><div className="mt-4 space-y-3">{clients.map((client) => <div key={client.id} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm"><span className="font-medium text-slate-700">{client.name}</span><span className="font-semibold text-slate-950">{tasks.filter((task) => task.clientId === client.id && task.status !== "Closed").length} active</span></div>)}</div></div></div></div>;
 }
 
-function AdminView({ actions, activity, clients, firm, modules, openTeam, tasks, team, toggleModule, user }: { actions: MemberActions; activity: ActivityEvent[]; clients: Client[]; firm: FirmProfile; modules: ModuleFlag[]; openTeam: () => void; tasks: Task[]; team: TeamMember[]; toggleModule: (id: string) => void; user: TeamMember }) {
+function AdminView({ actions, activity, activityLoading, activityError, clients, firm, modules, openTeam, tasks, team, toggleModule, user }: { actions: MemberActions; activity: ActivityDTO[]; activityLoading: boolean; activityError: ApiError | null; clients: Client[]; firm: FirmProfile; modules: ModuleFlag[]; openTeam: () => void; tasks: Task[]; team: TeamMember[]; toggleModule: (id: string) => void; user: TeamMember }) {
   const owner = user.platformRole === "Platform Owner";
   const activeTasks = tasks.filter((task) => task.status !== "Closed");
   const overdueTasks = activeTasks.filter((task) => task.dueDate < todayIso);
@@ -1904,7 +1931,7 @@ function AdminView({ actions, activity, clients, firm, modules, openTeam, tasks,
 
     <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
       <AdminPanel title="Activity Monitor" subtitle="Chronological control log for sensitive and operational actions." icon={Activity}>
-        <ActivityTimeline activity={activity} team={team} />
+        <ActivityTimeline activity={activity} loading={activityLoading} error={activityError} team={team} />
       </AdminPanel>
       <AdminPanel title="Release Readiness" subtitle="Simple governance checklist for first client deployment." icon={Settings}>
         <div className="space-y-3">
@@ -1976,14 +2003,18 @@ function ModuleControlCard({ item, owner, toggleModule }: { item: ModuleFlag; ow
   </div>;
 }
 
-function ActivityTimeline({ activity, team }: { activity: ActivityEvent[]; team: TeamMember[] }) {
-  if (activity.length === 0) return <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">No activity yet. User actions, task movements, and module changes will appear here automatically.</div>;
+// Section 14 Step 5B-5a: renders the server ActivityLog (GET /api/activity) only.
+// Fields come from ActivityDTO; actor resolved by PlatformUser userId. No local echo.
+function ActivityTimeline({ activity, loading, error, team }: { activity: ActivityDTO[]; loading: boolean; error: ApiError | null; team: TeamMember[] }) {
+  if (loading) return <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">Loading activity…</div>;
+  if (error) return <div className="rounded-lg border border-dashed border-rose-200 bg-rose-50 p-6 text-center text-sm text-rose-700">Could not load activity. Please reload the page.</div>;
+  if (activity.length === 0) return <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">No activity yet. Audited actions appear here automatically.</div>;
   return <div className="space-y-3">
-    {activity.slice(0, 8).map((event) => <div key={event.id} className="relative rounded-lg border border-slate-100 bg-slate-50 p-3 pl-10 text-sm" title={`${event.action}: ${event.detail}`}>
+    {activity.slice(0, 8).map((event) => <div key={event.id} className="relative rounded-lg border border-slate-100 bg-slate-50 p-3 pl-10 text-sm" title={`${event.action}: ${event.entityType}`}>
       <span className="absolute left-3 top-4 h-3 w-3 rounded-full bg-emerald-500 ring-4 ring-emerald-100" />
       <p className="font-semibold text-slate-900">{event.action}</p>
-      <p className="mt-1 text-slate-600">{event.detail}</p>
-      <p className="mt-1 text-xs text-slate-500">{userName(team, event.actorId)} - {event.createdAt}</p>
+      <p className="mt-1 text-slate-600">{event.entityType}</p>
+      <p className="mt-1 text-xs text-slate-500">{userNameByUserId(team, event.actorId ?? "")} - {new Date(event.createdAt).toLocaleString()}</p>
     </div>)}
   </div>;
 }
