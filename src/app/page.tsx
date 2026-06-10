@@ -70,7 +70,6 @@ type MemberActions = {
 };
 type WorkMapActions = {
   reassignTask: (taskId: string, assigneeId: string) => void;
-  resequenceTask: (taskId: string, direction: "up" | "down") => void;
   updateReviewer: (taskId: string, reviewerId: string) => void;
   // Section 14 Step 5B-4d-1: task id of the people update currently in flight
   // (null when idle). Row selects disable while a people update is pending.
@@ -111,11 +110,6 @@ const TEAM_WRITES_ENABLED = true;
 // and the recovery page shipped in 5B-3c-1; this flag now enables the Team UI
 // reset button and the wired resetMemberPassword call path.
 const TEAM_PASSWORD_RESET_ENABLED = true;
-
-// Section 14 Step 5B-4a: tasks READ cutover only. Task writes stay UI-disabled
-// behind this flag (every task write callback early-returns + controls disabled).
-// Create / move / notes / assignees / reviewer / resequence cut over in 5B-4b–d.
-const TASK_WRITES_ENABLED = false;
 
 // Section 14 Step 5B-4b: task CREATE cutover only. Create is enabled via this flag;
 // move/status, notes, assignees, reviewer update, and resequence stay parked on
@@ -1056,26 +1050,10 @@ export default function Home() {
     }
   }
 
-  function resequenceTask(taskId: string, direction: "up" | "down") {
-    if (!TASK_WRITES_ENABLED) return; // Section 14 Step 5B-4a: resequence has no API; deferred.
-    if (!user || !canCreateTask) return;
-    const target = taskList.find((task) => task.id === taskId);
-    if (!target) return;
-    const ordered = taskList
-      .filter((task) => task.clientId === target.clientId && (task.assignmentId ?? "") === (target.assignmentId ?? ""))
-      .sort((a, b) => taskSequence(a) - taskSequence(b));
-    const index = ordered.findIndex((task) => task.id === taskId);
-    const swapIndex = direction === "up" ? index - 1 : index + 1;
-    if (index < 0 || swapIndex < 0 || swapIndex >= ordered.length) return;
-    const first = ordered[index];
-    const second = ordered[swapIndex];
-    setTaskList((current) => current.map((task) => {
-      if (task.id === first.id) return { ...task, sequence: taskSequence(second), updatedAt: "Just now" };
-      if (task.id === second.id) return { ...task, sequence: taskSequence(first), updatedAt: "Just now" };
-      return task;
-    }));
-    log(user.id, "Resequenced task", "Task", target.title);
-  }
+  // Section 14 Step 5B-4e: manual task resequence (Up/Down) removed. It was a
+  // permanently-disabled, local-only no-op with no backend API; ordering still
+  // uses taskSequence() (default sort fallback). A real resequence API is
+  // deferred (recorded in DECISION_LOG during the 5B-4e doc-sync).
 
   function toggleModule(moduleId: string) {
     if (!user || !isPlatformOwner) return;
@@ -1167,7 +1145,7 @@ export default function Home() {
   }
 
   const memberActions: MemberActions = { resetPassword: resetMemberPassword, resettingId: resettingMemberId, setActive: setMemberActive, updateRole: updateMemberRole };
-  const workMapActions: WorkMapActions = { reassignTask, resequenceTask, updateReviewer, peoplePendingTaskId };
+  const workMapActions: WorkMapActions = { reassignTask, updateReviewer, peoplePendingTaskId };
 
   return (
     <main className="min-h-screen overflow-x-hidden text-slate-900">
@@ -1544,13 +1522,12 @@ function AssignmentTreeItem({ actions, assignment, canCoordinate, openTask, task
     </summary>
     <div className="border-t border-slate-200 bg-white p-3">
       {tasks.length === 0 && <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">No tasks linked to this assignment yet.</div>}
-      <div className="space-y-2">{tasks.map((task, index) => <div key={task.id} className="grid gap-2 rounded-lg border border-slate-100 bg-white p-3 text-sm md:grid-cols-[1.2fr_0.55fr_0.85fr_0.85fr_0.7fr_0.55fr] md:items-center" title="Task mapping row">
+      <div className="space-y-2">{tasks.map((task) => <div key={task.id} className="grid gap-2 rounded-lg border border-slate-100 bg-white p-3 text-sm md:grid-cols-[1.2fr_0.55fr_0.85fr_0.85fr_0.7fr] md:items-center" title="Task mapping row">
         <button className="text-left font-semibold text-slate-950 hover:text-blue-700" onClick={() => openTask(task.id)} type="button">{task.title}</button>
         <StatusPill status={task.status} />
         <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate || !TASK_PEOPLE_ENABLED || actions.peoplePendingTaskId !== null || task.status === "Closed" || task.status === "Cancelled"} onChange={(event) => actions.reassignTask(task.id, event.target.value)} title="Reassign task owner" value={task.assigneeIds[0] ?? ""}>{team.filter((member) => member.isActive && member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.userId}>{member.name}</option>)}</select>
         <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate || !TASK_PEOPLE_ENABLED || actions.peoplePendingTaskId !== null || task.status === "Closed" || task.status === "Cancelled"} onChange={(event) => actions.updateReviewer(task.id, event.target.value)} title="Change reviewer" value={task.reviewerId}>{team.filter((member) => member.isActive && member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.userId}>{member.name}</option>)}</select>
         <span className={dueState(task).tone + " text-xs font-semibold"}>{dueState(task).label} <span className="text-slate-400">{task.dueDate}</span></span>
-        <div className="flex gap-1"><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || !TASK_WRITES_ENABLED || index === 0} onClick={() => actions.resequenceTask(task.id, "up")} title="Move task earlier" type="button">Up</button><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || !TASK_WRITES_ENABLED || index === tasks.length - 1} onClick={() => actions.resequenceTask(task.id, "down")} title="Move task later" type="button">Down</button></div>
       </div>)}</div>
     </div>
   </details>;
@@ -1642,7 +1619,7 @@ function ProjectReviewCard({ actions, assignment, canCoordinate, client, openTas
         if (stageTasks.length === 0) return null;
         return <div key={status} className="rounded-lg border border-slate-100">
           <div className="flex items-center justify-between bg-slate-50 px-3 py-2"><StatusPill status={status} /><span className="text-xs font-semibold text-slate-500">{stageTasks.length} task{stageTasks.length === 1 ? "" : "s"}</span></div>
-          <div className="space-y-2 p-3">{stageTasks.map((task, index) => <ProjectTaskRow key={task.id} actions={actions} canCoordinate={canCoordinate} index={index} openTask={openTask} task={task} taskCount={stageTasks.length} team={team} />)}</div>
+          <div className="space-y-2 p-3">{stageTasks.map((task) => <ProjectTaskRow key={task.id} actions={actions} canCoordinate={canCoordinate} openTask={openTask} task={task} team={team} />)}</div>
         </div>;
       })}
       {tasks.length === 0 && <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-5 text-center text-sm text-slate-500">No task breakdown yet. Add tasks under this assignment to make accountability visible.</div>}
@@ -1650,14 +1627,14 @@ function ProjectReviewCard({ actions, assignment, canCoordinate, client, openTas
   </section>;
 }
 
-function ProjectTaskRow({ actions, canCoordinate, index, openTask, task, taskCount, team }: { actions: WorkMapActions; canCoordinate: boolean; index: number; openTask: (id: string) => void; task: Task; taskCount: number; team: TeamMember[] }) {
+function ProjectTaskRow({ actions, canCoordinate, openTask, task, team }: { actions: WorkMapActions; canCoordinate: boolean; openTask: (id: string) => void; task: Task; team: TeamMember[] }) {
   const risk = taskRisk(task);
   return <div className="grid gap-2 rounded-lg border border-slate-100 bg-white p-3 text-sm md:grid-cols-[1.2fr_0.8fr_0.8fr_0.7fr_0.55fr] md:items-center" title="Project task accountability row">
     <button className="text-left font-semibold text-slate-950 hover:text-blue-700" onClick={() => openTask(task.id)} type="button">{task.title}<span className="mt-1 block text-xs font-normal text-slate-500">{task.priority} priority</span></button>
     <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate || !TASK_PEOPLE_ENABLED || actions.peoplePendingTaskId !== null || task.status === "Closed" || task.status === "Cancelled"} onChange={(event) => actions.reassignTask(task.id, event.target.value)} title="Reassign assignee" value={task.assigneeIds[0] ?? ""}>{team.filter((member) => member.isActive && member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.userId}>{member.name}</option>)}</select>
     <select className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50" disabled={!canCoordinate || !TASK_PEOPLE_ENABLED || actions.peoplePendingTaskId !== null || task.status === "Closed" || task.status === "Cancelled"} onChange={(event) => actions.updateReviewer(task.id, event.target.value)} title="Change reviewer" value={task.reviewerId}>{team.filter((member) => member.isActive && member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.userId}>{member.name}</option>)}</select>
     <div><p className={dueState(task).tone + " text-xs font-semibold"}>{dueState(task).label}</p><p className="text-xs text-slate-500">{task.dueDate}</p></div>
-    <div className="flex flex-wrap items-center gap-1"><span className={riskTone(risk) + " rounded-full px-2 py-1 text-xs font-semibold"}>{risk}</span><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || !TASK_WRITES_ENABLED || index === 0} onClick={() => actions.resequenceTask(task.id, "up")} title="Move earlier in sequence" type="button">Up</button><button className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40" disabled={!canCoordinate || !TASK_WRITES_ENABLED || index === taskCount - 1} onClick={() => actions.resequenceTask(task.id, "down")} title="Move later in sequence" type="button">Down</button></div>
+    <div className="flex flex-wrap items-center gap-1"><span className={riskTone(risk) + " rounded-full px-2 py-1 text-xs font-semibold"}>{risk}</span></div>
   </div>;
 }
 
