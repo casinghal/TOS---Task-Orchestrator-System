@@ -76,7 +76,7 @@ type WorkMapActions = {
 const todayIso = "2026-04-27";
 const workspaceStorageKey = "practiceiq-live-v1";
 const legacyStorageKeys = ["tos-tams-tkg-live-v1", "tos-tams-tkg-live-v2", "tos-tams-tkg-live-v3"];
-const platformOwnerEmail = "singhal.accuron@gmail.com";
+// Section 14 Step 5B-final (F1): platformOwnerEmail removed with the pre-login gate.
 const creatorRoles: FirmRole[] = ["Firm Admin", "Partner", "Manager"];
 const firmRoles: FirmRole[] = ["Firm Admin", "Partner", "Manager", "Article/Staff"];
 
@@ -337,6 +337,30 @@ function mapMeDtoToUi(me: MeDTO, sessionEmail: string): TeamMember {
   };
 }
 
+// Section 14 Step 5B-final (F1): normalise the server firm status string to the
+// FirmProfile UI union. Defaults to "Active" for any unrecognised value.
+function normalizeFirmStatus(raw: string | null | undefined): FirmProfile["status"] {
+  switch ((raw ?? "").toUpperCase()) {
+    case "TRIAL": return "Trial";
+    case "PAUSED": return "Paused";
+    default: return "Active";
+  }
+}
+
+// Section 14 Step 5B-final (F1): map the optional active-firm display fields from
+// GET /api/me into the FirmProfile UI shape. Server is the source of truth; falls
+// back to neutral display values (never demo data) when a field is absent.
+function mapMeFirmToProfile(me: MeDTO): FirmProfile {
+  return {
+    id: me.firmId,
+    name: me.firmName ?? "PracticeIQ Workspace",
+    status: normalizeFirmStatus(me.firmStatus),
+    city: me.firmCity ?? "",
+    plan: me.firmPlan ?? "",
+    emailDomain: me.firmEmailDomain ?? "",
+  };
+}
+
 // Controlled, explicit error messaging for the team read (no silent fallback).
 function teamErrorMessage(error: ApiError): string {
   switch (error.kind) {
@@ -509,7 +533,11 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState<TeamMember | null>(null);
   const [meLoading, setMeLoading] = useState(true);
   const [identityError, setIdentityError] = useState<ApiError | "no_profile" | null>(null);
-  const [firmProfile, setFirmProfile] = useState<FirmProfile>(firm);
+  // Section 14 Step 5B-final (F1): firm display is sourced from GET /api/me after
+  // auth. Initialise to a neutral placeholder (NOT the demo seed) so no demo firm
+  // name/domain can render before the server value loads.
+  const [firmProfile, setFirmProfile] = useState<FirmProfile>({ id: "", name: "PracticeIQ Workspace", status: "Active", city: "", plan: "", emailDomain: "" });
+  const [firmLoading, setFirmLoading] = useState(true);
   const [firmDirectory, setFirmDirectory] = useState<FirmProfile[]>([firm]);
   // Section 14 Step 5B-5a: activity feed is the server ActivityLog only (GET /api/activity).
   // No local activity state, no seed, no localStorage source of truth.
@@ -536,7 +564,7 @@ export default function Home() {
           tasks?: Task[];
           clients?: Client[];
           team?: TeamMember[];
-          firm?: FirmProfile;
+          // Section 14 Step 5B-final (F1): `firm` removed from hydrate; active firm loads from GET /api/me.
           firms?: FirmProfile[];
           // Section 14 Step 5B-5b: modules excluded from hydrate; API is source of truth.
         };
@@ -544,7 +572,7 @@ export default function Home() {
         // Section 14 Step 5B-4a: tasks are no longer hydrated from localStorage; they load from GET /api/tasks.
         // Section 14 Step 5B-1: clients are no longer hydrated from localStorage; they load from GET /api/clients.
         // Section 14 Step 5B-3a: team is no longer hydrated from localStorage; it loads from GET /api/team.
-        if (saved.firm) setFirmProfile(saved.firm);
+        // Section 14 Step 5B-final (F1): firm is no longer hydrated from localStorage; it loads from GET /api/me.
         if (saved.firms) setFirmDirectory(saved.firms);
         // Section 14 Step 5B-5a: activity is no longer hydrated from localStorage; it loads from GET /api/activity.
         // Section 14 Step 5B-5b: modules are no longer hydrated from localStorage; they load from GET /api/modules.
@@ -564,10 +592,10 @@ export default function Home() {
       // Section 14 Step 5B-3a: team excluded from persist; API is source of truth. Pre-cutover team cache left intact.
       // Section 14 Step 5B-5a: activity excluded from persist; API is source of truth.
       // Section 14 Step 5B-5b: modules excluded from persist; API is source of truth.
-      firm: firmProfile,
+      // Section 14 Step 5B-final (F1): `firm` excluded from persist; API is source of truth.
       firms: firmDirectory,
     }));
-  }, [assignmentList, firmDirectory, firmProfile, isHydrated]);
+  }, [assignmentList, firmDirectory, isHydrated]);
 
   // Section 14 Step 5B-3a: resolve the current-user identity from GET /api/me
   // (server-authoritative platformRole + firmRole). No seed/email identity match.
@@ -580,6 +608,7 @@ export default function Home() {
         const authedEmail = data.user?.email ? normalizeEmail(data.user.email) : null;
         if (!authedEmail) {
           // Signed out: no /api/me call; fall through to the login screen.
+          setFirmLoading(false);
           setMeLoading(false);
           setSessionChecked(true);
           return;
@@ -589,6 +618,8 @@ export default function Home() {
           if (!active) return;
           setCurrentUser(mapMeDtoToUi(me, authedEmail));
           setSessionUserId(me.firmMemberId);
+          // Section 14 Step 5B-final (F1): active firm display from GET /api/me.
+          setFirmProfile(mapMeFirmToProfile(me));
           setIdentityError(null);
         } catch (error: unknown) {
           if (!active) return;
@@ -601,6 +632,7 @@ export default function Home() {
           }
         } finally {
           if (active) {
+            setFirmLoading(false);
             setMeLoading(false);
             setSessionChecked(true);
           }
@@ -608,6 +640,7 @@ export default function Home() {
       })
       .catch(() => {
         if (active) {
+          setFirmLoading(false);
           setMeLoading(false);
           setSessionChecked(true);
         }
@@ -1160,7 +1193,9 @@ export default function Home() {
 
   async function login(email: string, password: string) {
     const normalizedEmail = normalizeEmail(email);
-    if (!isAllowedLoginEmail(normalizedEmail, firmProfile.emailDomain)) return { ok: false, message: "Use your registered work email ID for this firm." };
+    // Section 14 Step 5B-final (F1): the pre-login client-side email-domain gate was
+    // removed. Authority is Supabase Auth + the /api/me fail-closed workspace mapping
+    // below (an unmapped account is signed out and rejected).
     if (password.length < 8) return { ok: false, message: "Password must be at least 8 characters." };
     const supabase = getSupabaseBrowserClient();
     const { error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
@@ -1177,6 +1212,9 @@ export default function Home() {
     }
     setCurrentUser(mapMeDtoToUi(me, normalizedEmail));
     setSessionUserId(me.firmMemberId);
+    // Section 14 Step 5B-final (F1): active firm display from GET /api/me.
+    setFirmProfile(mapMeFirmToProfile(me));
+    setFirmLoading(false);
     setIdentityError(null);
     setMeLoading(false);
     setActiveSection("dashboard");
@@ -1242,7 +1280,7 @@ export default function Home() {
   return (
     <main className="min-h-screen overflow-x-hidden text-slate-900">
       <div className="flex min-h-screen">
-        <Sidebar active={currentSection} firm={firmProfile} nav={allowedSections} setActive={setActiveSection} user={user} />
+        <Sidebar active={currentSection} firm={firmProfile} firmLoading={firmLoading} nav={allowedSections} setActive={setActiveSection} user={user} />
         <section className="flex min-w-0 flex-1 flex-col">
           <Header active={currentSection} canCreateTask={canCreateTask} firm={firmProfile} nav={allowedSections} open={setModal} setActive={setActiveSection} user={user} logout={logout} exportWorkspace={exportWorkspace} />
           <div className="p-4 md:p-6">
@@ -1388,11 +1426,11 @@ function DashTile({ dark = false, label, text, value }: { dark?: boolean; label:
   </article>;
 }
 
-function Sidebar({ active, firm, nav, setActive, user }: { active: Section; firm: FirmProfile; nav: typeof navItems; setActive: (section: Section) => void; user: TeamMember }) {
+function Sidebar({ active, firm, firmLoading, nav, setActive, user }: { active: Section; firm: FirmProfile; firmLoading: boolean; nav: typeof navItems; setActive: (section: Section) => void; user: TeamMember }) {
   return <aside className="hidden w-72 shrink-0 border-r border-slate-200 bg-white/90 px-4 py-5 shadow-sm backdrop-blur lg:block">
     <div className="mb-6 flex items-center gap-3 px-2"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white"><ClipboardList size={21} /></div><div><p className="text-sm font-semibold text-slate-950">PracticeIQ</p><p className="text-xs text-slate-500">Practice orchestration platform</p></div></div>
     <nav className="space-y-1">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950") + " flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition"} onClick={() => setActive(item.id)} type="button"><Icon size={18} />{item.label}</button>; })}</nav>
-    <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-semibold uppercase text-slate-500">Active firm</p><p className="mt-2 text-sm font-semibold text-slate-900">{firm.name}</p><p className="mt-1 text-xs text-slate-500">{firm.status} - {firm.plan}</p></div>
+    <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-semibold uppercase text-slate-500">Active firm</p><p className="mt-2 text-sm font-semibold text-slate-900">{firmLoading ? "PracticeIQ Workspace" : firm.name}</p><p className="mt-1 text-xs text-slate-500">{firmLoading ? "Workspace" : firm.plan ? `${firm.status} - ${firm.plan}` : firm.status}</p></div>
     <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3"><p className="text-xs font-semibold uppercase text-blue-700">Signed in</p><p className="mt-2 text-sm font-semibold text-blue-950">{user.name}</p><p className="mt-1 text-xs text-blue-700">{user.platformRole === "Platform Owner" ? "Platform Owner" : user.firmRole}</p></div>
   </aside>;
 }
@@ -2465,18 +2503,7 @@ function canAccessSection(user: TeamMember, section: Section) {
   return false;
 }
 
-function isWorkspaceEmail(email: string, domain: string) {
-  const normalized = normalizeEmail(email);
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) return false;
-  if (!domain.trim()) return true;
-  return normalized.endsWith("@" + domain.trim().toLowerCase());
-}
-
-function isPlatformOwnerEmail(email: string) {
-  return normalizeEmail(email) === platformOwnerEmail;
-}
-
-function isAllowedLoginEmail(email: string, domain: string) {
-  return isWorkspaceEmail(email, domain) || isPlatformOwnerEmail(email);
-}
+// Section 14 Step 5B-final (F1): the pre-login email-domain gate and its helpers
+// (isAllowedLoginEmail / isWorkspaceEmail / isPlatformOwnerEmail) were removed.
+// Authority is Supabase Auth + the /api/me fail-closed workspace mapping.
 

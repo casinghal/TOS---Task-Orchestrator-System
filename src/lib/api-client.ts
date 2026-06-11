@@ -191,6 +191,13 @@ export interface MeDTO {
   firmRole: string;
   platformRole: string;
   firmId: string;
+  // Section 14 Step 5B-final (F1): optional active-firm display fields, sourced
+  // server-side from the session's own firm. Display-only; never used for auth.
+  firmName?: string | null;
+  firmStatus?: string | null;
+  firmPlan?: string | null;
+  firmEmailDomain?: string | null;
+  firmCity?: string | null;
 }
 
 export interface ModuleDTO {

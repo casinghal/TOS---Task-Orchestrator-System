@@ -52,6 +52,22 @@ export async function GET(request: Request) {
     // Fail closed if no active workspace profile is found for this session.
     if (!member) return err("No active workspace profile.", 401);
 
+    // Section 14 Step 5B-final (F1): additive active-firm display fields for the
+    // session's OWN firm (session.firmId). Read-only; same-firm only; no
+    // cross-firm lookup; no writes. Safe display fields only - no secrets and no
+    // other firm's data. Plan name is read via the existing Firm->Plan relation
+    // (no schema change). All fields are optional/nullable on the client.
+    const firmRecord = await prisma.firm.findUnique({
+      where: { id: session.firmId },
+      select: {
+        name: true,
+        status: true,
+        city: true,
+        emailDomain: true,
+        plan: { select: { name: true } },
+      },
+    });
+
     return ok({
       userId: session.userId,
       firmMemberId: member.id,
@@ -59,6 +75,11 @@ export async function GET(request: Request) {
       firmRole: session.firmRole,
       platformRole: session.platformRole,
       firmId: session.firmId,
+      firmName: firmRecord?.name ?? null,
+      firmStatus: firmRecord?.status ?? null,
+      firmPlan: firmRecord?.plan?.name ?? null,
+      firmEmailDomain: firmRecord?.emailDomain ?? null,
+      firmCity: firmRecord?.city ?? null,
     });
   } catch {
     // Controlled failure; do not leak identity or error internals to the client
