@@ -33,11 +33,8 @@ import {
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  clients as seedClients,
   plans,
   statuses,
-  tasks as seedTasks,
-  teamMembers as seedTeam,
   type Assignment,
   type Client,
   type FirmProfile,
@@ -515,17 +512,20 @@ export default function Home() {
   const [statusFilter, setStatusFilter] = useState<"All" | TaskStatus>("All");
   // Section 14 Step 5B-final-F3: assignments are parked - no seed, no localStorage.
   const [assignmentList, setAssignmentList] = useState<Assignment[]>([]);
-  const [taskList, setTaskList] = useState<Task[]>(seedTasks);
+  // Post-5B-final first-paint fix: tasks load from GET /api/tasks; no demo seed (avoids a demo-data flash before the API resolves).
+  const [taskList, setTaskList] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
   const [tasksError, setTasksError] = useState<ApiError | null>(null);
   // Section 14 Step 5B-4d-1: people-update in-flight guard + controlled notice.
   const [peoplePendingTaskId, setPeoplePendingTaskId] = useState<string | null>(null);
   const [peopleNotice, setPeopleNotice] = useState<string | null>(null);
-  const [clientList, setClientList] = useState<Client[]>(seedClients);
+  // Post-5B-final first-paint fix: clients load from GET /api/clients; no demo seed.
+  const [clientList, setClientList] = useState<Client[]>([]);
   const [clientsLoading, setClientsLoading] = useState(true);
   const [clientsError, setClientsError] = useState<ApiError | null>(null);
   const [clientsNotice, setClientsNotice] = useState<string | null>(null);
-  const [teamList, setTeamList] = useState<TeamMember[]>(seedTeam);
+  // Post-5B-final first-paint fix: team loads from GET /api/team; no demo seed (avoids the demo "Active Users" flash on the dashboard).
+  const [teamList, setTeamList] = useState<TeamMember[]>([]);
   const [teamLoading, setTeamLoading] = useState(true);
   const [teamError, setTeamError] = useState<ApiError | null>(null);
   // Section 14 Step 5B-3b: write surfacing. On a write success but refetch
@@ -1266,7 +1266,9 @@ export default function Home() {
           <Header active={currentSection} canCreateTask={canCreateTask} firm={firmProfile} nav={allowedSections} open={setModal} setActive={setActiveSection} user={user} logout={logout} exportWorkspace={exportWorkspace} />
           <div className="p-4 md:p-6">
             <GuidanceNote title="Tip for effective usage" text={loginTip} />
-            {currentSection === "dashboard" && <RoleDashboardView assignments={assignmentList} clients={clientList} modules={modules} openAssignment={() => setModal("assignment")} openTask={setSelectedTaskId} setActive={setActiveSection} tasks={taskList} team={teamList} user={user} />}
+            {currentSection === "dashboard" && ((clientsLoading || tasksLoading || teamLoading || modulesLoading)
+              ? <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading workspace…</div>
+              : <RoleDashboardView assignments={assignmentList} clients={clientList} modules={modules} openAssignment={() => setModal("assignment")} openTask={setSelectedTaskId} setActive={setActiveSection} tasks={taskList} team={teamList} user={user} />)}
             {currentSection === "tasks" && (tasksLoading
               ? <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading tasks…</div>
               : tasksError
