@@ -33,7 +33,6 @@ import {
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  assignments as seedAssignments,
   clients as seedClients,
   plans,
   statuses,
@@ -138,6 +137,12 @@ const TASK_NOTES_ENABLED = true;
 // PLATFORM_OWNER only for PATCH; all roles can read (MODULES_VIEW permission).
 const MODULES_READ_ENABLED = true;
 const MODULE_TOGGLE_ENABLED = true;
+
+// Section 14 Step 5B-final-F3: Assignments + Project Review are parked. There is no
+// Assignment backend (no model, no /api/assignments, no Task.assignmentId), so the
+// feature is gated off the pilot nav and its write paths. Flip to true only when a
+// real Assignment backend ships.
+const ASSIGNMENTS_ENABLED = false;
 
 // FirmRole code (API) -> UI display string.
 function firmRoleCodeToUi(code: string): FirmRole {
@@ -508,7 +513,8 @@ export default function Home() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | TaskStatus>("All");
-  const [assignmentList, setAssignmentList] = useState<Assignment[]>(seedAssignments);
+  // Section 14 Step 5B-final-F3: assignments are parked - no seed, no localStorage.
+  const [assignmentList, setAssignmentList] = useState<Assignment[]>([]);
   const [taskList, setTaskList] = useState<Task[]>(seedTasks);
   const [tasksLoading, setTasksLoading] = useState(true);
   const [tasksError, setTasksError] = useState<ApiError | null>(null);
@@ -552,51 +558,25 @@ export default function Home() {
   const [modulesError, setModulesError] = useState<ApiError | null>(null);
   // In-flight guard: key of the module currently being toggled; null when idle.
   const [moduleTogglePending, setModuleTogglePending] = useState<string | null>(null);
-  const [isHydrated, setIsHydrated] = useState(false);
   const [loginTip, setLoginTip] = useState(loginTips[0]);
 
   useEffect(() => {
+    // Section 14 Step 5B-final-F3: no app state hydrates from localStorage anymore
+    // (assignments was the last source-of-truth key). Clear the legacy keys AND the
+    // workspaceStorageKey itself so existing browsers actively drop any stale
+    // `{ assignments: ... }` payload. The export bridge still produces a manual JSON
+    // backup on demand; it does not depend on this key.
     try {
       legacyStorageKeys.forEach((key) => window.localStorage.removeItem(key));
-      const raw = window.localStorage.getItem(workspaceStorageKey);
-      if (raw) {
-        const saved = JSON.parse(raw) as {
-          assignments?: Assignment[];
-          tasks?: Task[];
-          clients?: Client[];
-          team?: TeamMember[];
-          // Section 14 Step 5B-final (F1): `firm` removed from hydrate; active firm loads from GET /api/me.
-          // Section 14 Step 5B-final (F2): `firms` removed from hydrate; the registry derives from the active firm.
-          // Section 14 Step 5B-5b: modules excluded from hydrate; API is source of truth.
-        };
-        if (saved.assignments) setAssignmentList(saved.assignments);
-        // Section 14 Step 5B-4a: tasks are no longer hydrated from localStorage; they load from GET /api/tasks.
-        // Section 14 Step 5B-1: clients are no longer hydrated from localStorage; they load from GET /api/clients.
-        // Section 14 Step 5B-3a: team is no longer hydrated from localStorage; it loads from GET /api/team.
-        // Section 14 Step 5B-final (F1): firm is no longer hydrated from localStorage; it loads from GET /api/me.
-        // Section 14 Step 5B-final (F2): firms is no longer hydrated; the registry derives from the active firm.
-        // Section 14 Step 5B-5a: activity is no longer hydrated from localStorage; it loads from GET /api/activity.
-        // Section 14 Step 5B-5b: modules are no longer hydrated from localStorage; they load from GET /api/modules.
-      }
-    } finally {
-      setIsHydrated(true);
+      window.localStorage.removeItem(workspaceStorageKey);
+    } catch {
+      // Ignore storage access errors (private mode etc.).
     }
   }, []);
 
-  useEffect(() => {
-    if (!isHydrated) return;
-    window.localStorage.setItem(workspaceStorageKey, JSON.stringify({
-      assignments: assignmentList,
-      // Section 14 Step 5B-4a: tasks excluded from persist; API is source of truth. Pre-cutover tasks cache left intact as inert backup.
-      // Section 14 Step 5B-1: clients excluded from persist; API is source of truth.
-      // The pre-cutover `clients` key already in localStorage is left intact as backup.
-      // Section 14 Step 5B-3a: team excluded from persist; API is source of truth. Pre-cutover team cache left intact.
-      // Section 14 Step 5B-5a: activity excluded from persist; API is source of truth.
-      // Section 14 Step 5B-5b: modules excluded from persist; API is source of truth.
-      // Section 14 Step 5B-final (F1): `firm` excluded from persist; API is source of truth.
-      // Section 14 Step 5B-final (F2): `firms` excluded from persist; the registry derives from the active firm.
-    }));
-  }, [assignmentList, isHydrated]);
+  // Section 14 Step 5B-final-F3: the localStorage persist effect was removed - no
+  // source-of-truth keys remain (assignments was the last). Reads/writes of app state
+  // are entirely server-backed; only the on-demand export bridge serialises a backup.
 
   // Section 14 Step 5B-3a: resolve the current-user identity from GET /api/me
   // (server-authoritative platformRole + firmRole). No seed/email identity match.
@@ -1307,8 +1287,8 @@ export default function Home() {
           </div>
         </section>
       </div>
-      {TASK_CREATE_ENABLED && modal === "task" && <TaskModal assignments={assignmentList} clients={clientList} team={teamList} close={() => setModal(null)} submit={createTask} />}
-      {modal === "assignment" && <AssignmentModal clients={clientList} close={() => setModal(null)} submit={createAssignment} team={teamList} />}
+      {TASK_CREATE_ENABLED && modal === "task" && <TaskModal clients={clientList} team={teamList} close={() => setModal(null)} submit={createTask} />}
+      {ASSIGNMENTS_ENABLED && modal === "assignment" && <AssignmentModal clients={clientList} close={() => setModal(null)} submit={createAssignment} team={teamList} />}
       {CLIENT_WRITES_ENABLED && modal === "client" && <ClientModal close={() => setModal(null)} submit={createClient} />}
       {TEAM_WRITES_ENABLED && modal === "team" && <TeamModal close={() => setModal(null)} submit={createMember} />}
       {selectedTask && <TaskDrawer key={selectedTask.id} assignments={assignmentList} task={selectedTask} team={teamList} clients={clientList} user={user} close={() => setSelectedTaskId(null)} addNote={addNote} moveTask={moveTask} reopenTask={reopenTask} cancelTask={cancelTask} />}
@@ -1435,7 +1415,7 @@ function Sidebar({ active, firm, firmLoading, nav, setActive, user }: { active: 
 
 function Header({ active, canCreateTask, exportWorkspace, firm, logout, nav, open, setActive, user }: { active: Section; canCreateTask: boolean; exportWorkspace: () => void; firm: FirmProfile; logout: () => void; nav: typeof navItems; open: (modal: Modal) => void; setActive: (section: Section) => void; user: TeamMember }) {
   const title = nav.find((item) => item.id === active)?.label ?? "PracticeIQ";
-  const nextModal: Modal = active === "clients" ? "client" : active === "team" ? "team" : active === "assignments" || active === "projectReview" || active === "dashboard" ? "assignment" : active === "firmSetup" ? null : "task";
+  const nextModal: Modal = active === "clients" ? "client" : active === "team" ? "team" : active === "assignments" || active === "projectReview" || active === "dashboard" ? (ASSIGNMENTS_ENABLED ? "assignment" : null) : active === "firmSetup" ? null : "task";
   const canManageTeam = user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin";
   const canUsePrimaryAction = active === "firmSetup"
     ? user.platformRole === "Platform Owner"
@@ -1494,11 +1474,11 @@ function RoleDashboardView({ assignments, clients, modules, openAssignment, open
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-slate-950">{roleTitle}</h2>
-          <p className="mt-1 text-sm text-slate-500">Role-based control surface with client and assignment roll-up.</p>
+          <p className="mt-1 text-sm text-slate-500">Role-based control surface with client and task roll-up.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={() => setActive("projectReview")} type="button">Open Master Review</button>
-          {canControl && <button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.35)] hover:bg-blue-700" onClick={openAssignment} type="button">Add Assignment</button>}
+          {ASSIGNMENTS_ENABLED && <button className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={() => setActive("projectReview")} type="button">Open Master Review</button>}
+          {ASSIGNMENTS_ENABLED && canControl && <button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.35)] hover:bg-blue-700" onClick={openAssignment} type="button">Add Assignment</button>}
         </div>
       </div>
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -1523,12 +1503,12 @@ function RoleDashboardView({ assignments, clients, modules, openAssignment, open
             </div>
             <span className="rounded-full bg-amber-100 px-2 py-1 text-center text-xs font-semibold text-amber-800">{row.pending} pending</span>
             <span className="rounded-full bg-violet-100 px-2 py-1 text-center text-xs font-semibold text-violet-800">{row.reviewed} review</span>
-            <button className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100" onClick={() => setActive("projectReview")} type="button">Open</button>
+            {ASSIGNMENTS_ENABLED && <button className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100" onClick={() => setActive("projectReview")} type="button">Open</button>}
           </div>)}
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      {ASSIGNMENTS_ENABLED && <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h3 className="font-semibold text-slate-950">Assignment Control Board</h3>
         <p className="mt-1 text-xs text-slate-500">Priority-sorted by risk and pending load.</p>
         <div className="mt-3 space-y-2">
@@ -1544,7 +1524,7 @@ function RoleDashboardView({ assignments, clients, modules, openAssignment, open
             </div>
           </div>)}
         </div>
-      </div>
+      </div>}
     </section>
 
     {user.firmRole === "Firm Admin" && <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -1583,11 +1563,11 @@ function Metric({ icon: Icon, label, tone, value }: { icon: typeof AlertTriangle
 }
 
 function TaskTable({ assignments, clients, openTask, tasks, team }: { assignments: Assignment[]; clients: Client[]; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[] }) {
-  return <div className="overflow-x-auto"><table className="w-full min-w-[1080px] border-collapse text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-semibold" title="Task title entered by the creator.">Task</th><th className="px-4 py-3 font-semibold" title="Client linked to the task.">Client</th><th className="px-4 py-3 font-semibold" title="Assignment stream this task rolls up into.">Assignment</th><th className="px-4 py-3 font-semibold" title="Current workflow stage.">Status</th><th className="px-4 py-3 font-semibold" title="Due date and urgency.">Due</th><th className="px-4 py-3 font-semibold" title="People responsible for doing the work.">Assignees</th><th className="px-4 py-3 font-semibold" title="Person responsible for review and closure.">Reviewer</th><th className="px-4 py-3 font-semibold" title="Priority selected by the creator.">Priority</th><th className="px-4 py-3 font-semibold" title="Open the task detail panel.">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{tasks.length === 0 && <tr><td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={9}>No tasks yet. Add a client first, then create an assignment and task with only the required details.</td></tr>}{tasks.map((task) => { const due = dueState(task); return <tr key={task.id} className="hover:bg-slate-50/70" title="Open this task to update status, notes, and review closure."><td className="px-4 py-3 font-medium text-slate-950">{task.title}</td><td className="px-4 py-3 text-slate-600">{clientName(clients, task.clientId)}</td><td className="px-4 py-3 text-slate-600">{assignmentName(assignments, task.assignmentId)}</td><td className="px-4 py-3"><StatusPill status={task.status} /></td><td className="px-4 py-3"><span className={due.tone + " font-medium"}>{due.label}</span><div className="text-xs text-slate-500">{task.dueDate}</div></td><td className="px-4 py-3 text-slate-600">{task.assigneeIds.map((id) => userNameByUserId(team, id)).join(", ")}</td><td className="px-4 py-3 text-slate-600">{userNameByUserId(team, task.reviewerId)}</td><td className={priorityTone[task.priority] + " px-4 py-3 font-semibold"}>{task.priority}</td><td className="px-4 py-3"><button className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => openTask(task.id)} title="View task details and workflow actions" type="button">View</button></td></tr>; })}</tbody></table></div>;
+  return <div className="overflow-x-auto"><table className="w-full min-w-[1080px] border-collapse text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-semibold" title="Task title entered by the creator.">Task</th><th className="px-4 py-3 font-semibold" title="Client linked to the task.">Client</th>{ASSIGNMENTS_ENABLED && <th className="px-4 py-3 font-semibold" title="Assignment stream this task rolls up into.">Assignment</th>}<th className="px-4 py-3 font-semibold" title="Current workflow stage.">Status</th><th className="px-4 py-3 font-semibold" title="Due date and urgency.">Due</th><th className="px-4 py-3 font-semibold" title="People responsible for doing the work.">Assignees</th><th className="px-4 py-3 font-semibold" title="Person responsible for review and closure.">Reviewer</th><th className="px-4 py-3 font-semibold" title="Priority selected by the creator.">Priority</th><th className="px-4 py-3 font-semibold" title="Open the task detail panel.">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{tasks.length === 0 && <tr><td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={ASSIGNMENTS_ENABLED ? 9 : 8}>No tasks yet. Add a client first, then create a task with only the required details.</td></tr>}{tasks.map((task) => { const due = dueState(task); return <tr key={task.id} className="hover:bg-slate-50/70" title="Open this task to update status, notes, and review closure."><td className="px-4 py-3 font-medium text-slate-950">{task.title}</td><td className="px-4 py-3 text-slate-600">{clientName(clients, task.clientId)}</td>{ASSIGNMENTS_ENABLED && <td className="px-4 py-3 text-slate-600">{assignmentName(assignments, task.assignmentId)}</td>}<td className="px-4 py-3"><StatusPill status={task.status} /></td><td className="px-4 py-3"><span className={due.tone + " font-medium"}>{due.label}</span><div className="text-xs text-slate-500">{task.dueDate}</div></td><td className="px-4 py-3 text-slate-600">{task.assigneeIds.map((id) => userNameByUserId(team, id)).join(", ")}</td><td className="px-4 py-3 text-slate-600">{userNameByUserId(team, task.reviewerId)}</td><td className={priorityTone[task.priority] + " px-4 py-3 font-semibold"}>{task.priority}</td><td className="px-4 py-3"><button className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => openTask(task.id)} title="View task details and workflow actions" type="button">View</button></td></tr>; })}</tbody></table></div>;
 }
 
 function Kanban({ assignments, clients, openTask, tasks, team }: { assignments: Assignment[]; clients: Client[]; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[] }) {
-  return <div className="grid gap-3 overflow-x-auto p-4 lg:grid-cols-3 xl:grid-cols-6">{statuses.map((status) => <div key={status} className="min-h-72 rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-slate-800">{status}</h3><span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-slate-500">{tasks.filter((task) => task.status === status).length}</span></div><div className="space-y-2">{tasks.filter((task) => task.status === status).map((task) => <button key={task.id} className="w-full rounded-lg border border-slate-200 bg-white p-3 text-left shadow-sm hover:border-blue-200 hover:bg-blue-50/40" onClick={() => openTask(task.id)} type="button"><p className="text-sm font-semibold text-slate-950">{task.title}</p><p className="mt-1 text-xs text-slate-500">{clientName(clients, task.clientId)}</p><p className="mt-1 text-xs font-medium text-blue-700">{assignmentName(assignments, task.assignmentId)}</p><p className="mt-2 text-xs text-slate-500">{task.assigneeIds.map((id) => userNameByUserId(team, id)).join(", ")}</p><div className="mt-3 flex items-center justify-between text-xs"><span className={dueState(task).tone}>{dueState(task).label}</span><span className={priorityTone[task.priority]}>{task.priority}</span></div></button>)}</div></div>)}</div>;
+  return <div className="grid gap-3 overflow-x-auto p-4 lg:grid-cols-3 xl:grid-cols-6">{statuses.map((status) => <div key={status} className="min-h-72 rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-slate-800">{status}</h3><span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-slate-500">{tasks.filter((task) => task.status === status).length}</span></div><div className="space-y-2">{tasks.filter((task) => task.status === status).map((task) => <button key={task.id} className="w-full rounded-lg border border-slate-200 bg-white p-3 text-left shadow-sm hover:border-blue-200 hover:bg-blue-50/40" onClick={() => openTask(task.id)} type="button"><p className="text-sm font-semibold text-slate-950">{task.title}</p><p className="mt-1 text-xs text-slate-500">{clientName(clients, task.clientId)}</p>{ASSIGNMENTS_ENABLED && <p className="mt-1 text-xs font-medium text-blue-700">{assignmentName(assignments, task.assignmentId)}</p>}<p className="mt-2 text-xs text-slate-500">{task.assigneeIds.map((id) => userNameByUserId(team, id)).join(", ")}</p><div className="mt-3 flex items-center justify-between text-xs"><span className={dueState(task).tone}>{dueState(task).label}</span><span className={priorityTone[task.priority]}>{task.priority}</span></div></button>)}</div></div>)}</div>;
 }
 
 function AssignmentsView({ actions, assignments, clients, openAssignment, openClient, openTask, tasks, team, user }: { actions: WorkMapActions; assignments: Assignment[]; clients: Client[]; openAssignment: () => void; openClient: () => void; openTask: (id: string) => void; tasks: Task[]; team: TeamMember[]; user: TeamMember }) {
@@ -2090,7 +2070,7 @@ function OwnerTool({ icon: Icon, label, text }: { icon: typeof Eye; label: strin
   return <div className="rounded-lg border border-slate-100 bg-slate-50 p-3" title={text}><Icon className="text-blue-600" size={18} /><p className="mt-3 text-sm font-semibold text-slate-950">{label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{text}</p></div>;
 }
 
-function TaskModal({ assignments, clients, close, submit, team }: { assignments: Assignment[]; clients: Client[]; close: () => void; submit: (values: { title: string; clientId: string; dueDate: string; priority: string; assigneeIds: string[]; reviewerId: string; description?: string }) => Promise<{ ok: boolean; message?: string }>; team: TeamMember[] }) {
+function TaskModal({ clients, close, submit, team }: { clients: Client[]; close: () => void; submit: (values: { title: string; clientId: string; dueDate: string; priority: string; assigneeIds: string[]; reviewerId: string; description?: string }) => Promise<{ ok: boolean; message?: string }>; team: TeamMember[] }) {
   const activeTeam = team.filter((member) => member.isActive);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -2119,7 +2099,7 @@ function TaskModal({ assignments, clients, close, submit, team }: { assignments:
     setError(result.message || "Could not create the task. Please try again.");
     setSubmitting(false);
   }
-  return <ModalFrame title="Create task" subtitle="Required fields first. Link to an assignment when the work should roll up for partner review." close={close}><form className="space-y-4" onSubmit={onSubmit}><Field label="Task title" name="title" required /><div className="grid gap-4 md:grid-cols-2"><Select label="Client" name="clientId" required><option value="">Select client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</Select><Select label="Assignment" name="assignmentId"><option value="">Unmapped task</option>{assignments.map((assignment) => <option key={assignment.id} value={assignment.id}>{clientName(clients, assignment.clientId)} - {assignment.name}</option>)}</Select><Field label="Due date" name="dueDate" required type="date" /><Select label="Priority" name="priority"><option>Low</option><option>Normal</option><option>High</option><option>Critical</option></Select></div><div className="grid gap-4 md:grid-cols-2"><label className="block"><span className="text-sm font-medium text-slate-700">Assignees</span><select className="mt-1 min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" name="assigneeIds" multiple required>{activeTeam.filter((member) => member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.userId}>{member.name} - {member.firmRole}</option>)}</select><span className="mt-1 block text-xs text-slate-500">Hold Ctrl to select multiple active users.</span></label><Select label="Reviewer" name="reviewerId" required><option value="">Select reviewer</option>{activeTeam.filter((member) => member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.userId}>{member.name} - {member.firmRole}</option>)}</Select></div><textarea className="min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" name="description" placeholder="More details, optional" />{error && <div className="rounded-lg border border-red-300/40 bg-red-50 p-3 text-sm text-red-800" role="alert">{error}</div>}<Actions close={close} disabled={submitting} label={submitting ? "Creating…" : "Create Task"} /></form></ModalFrame>;
+  return <ModalFrame title="Create task" subtitle="Required fields first." close={close}><form className="space-y-4" onSubmit={onSubmit}><Field label="Task title" name="title" required /><div className="grid gap-4 md:grid-cols-2"><Select label="Client" name="clientId" required><option value="">Select client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</Select><Field label="Due date" name="dueDate" required type="date" /><Select label="Priority" name="priority"><option>Low</option><option>Normal</option><option>High</option><option>Critical</option></Select></div><div className="grid gap-4 md:grid-cols-2"><label className="block"><span className="text-sm font-medium text-slate-700">Assignees</span><select className="mt-1 min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" name="assigneeIds" multiple required>{activeTeam.filter((member) => member.firmRole !== "Firm Admin").map((member) => <option key={member.id} value={member.userId}>{member.name} - {member.firmRole}</option>)}</select><span className="mt-1 block text-xs text-slate-500">Hold Ctrl to select multiple active users.</span></label><Select label="Reviewer" name="reviewerId" required><option value="">Select reviewer</option>{activeTeam.filter((member) => member.firmRole !== "Article/Staff").map((member) => <option key={member.id} value={member.userId}>{member.name} - {member.firmRole}</option>)}</Select></div><textarea className="min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" name="description" placeholder="More details, optional" />{error && <div className="rounded-lg border border-red-300/40 bg-red-50 p-3 text-sm text-red-800" role="alert">{error}</div>}<Actions close={close} disabled={submitting} label={submitting ? "Creating…" : "Create Task"} /></form></ModalFrame>;
 }
 
 function AssignmentModal({ clients, close, submit, team }: { clients: Client[]; close: () => void; submit: (event: FormEvent<HTMLFormElement>) => void; team: TeamMember[] }) {
@@ -2321,7 +2301,7 @@ function TaskDrawer({ addNote, assignments, cancelTask, clients, close, moveTask
     else { setActionReason(""); await refetchNotes(); } // reopen/cancel auto-create a TaskNote server-side
     setActionPending(false);
   }
-  return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl"><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4"><div><button className="mb-2 text-sm font-semibold text-slate-600 hover:text-slate-950" onClick={close} type="button">Back</button><h2 className="text-xl font-semibold text-slate-950">{task.title}</h2><p className="mt-1 text-sm text-slate-500">{clientName(clients, task.clientId)} - {assignmentName(assignments, task.assignmentId)}</p></div><StatusPill status={task.status} /></div><div className="space-y-5 p-5"><div className="grid gap-3 md:grid-cols-2"><Info label="Assignment" value={assignmentName(assignments, task.assignmentId)} /><Info label="Due date" value={task.dueDate + " - " + dueState(task).label} /><Info label="Priority" value={task.priority} /><Info label="Assignees" value={task.assigneeIds.map((id) => userNameByUserId(team, id)).join(", ")} /><Info label="Reviewer" value={userNameByUserId(team, task.reviewerId)} /></div>{task.description && <Info label="Description" value={task.description} />}<div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Workflow actions</h3><div className="mt-3 flex flex-wrap gap-2"><Workflow disabled={!lcCanUpdate || actionPending || task.status === "Under Review" || !lifecycleCanMoveTo(task.status, "In Progress")} label="Start / resume" action={() => runMove("In Progress")} /><Workflow disabled={!lcCanUpdate || actionPending || !lifecycleCanMoveTo(task.status, "Pending Client")} label="Pending client" action={() => runMove("Pending Client")} /><Workflow disabled={!lcCanUpdate || actionPending || !lifecycleCanMoveTo(task.status, "Pending Internal")} label="Pending internal" action={() => runMove("Pending Internal")} /><Workflow disabled={!lcAssignee || actionPending || !lifecycleCanMoveTo(task.status, "Under Review")} label="Move to review" action={() => runMove("Under Review")} /><Workflow disabled={!lcReviewer || actionPending || task.status !== "Under Review"} label="Send back" action={() => runMove("In Progress")} /></div><div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3"><label className="block text-sm font-medium text-slate-700">Closure remarks</label><textarea className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Required before reviewer closes the task" /><button className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" disabled={!lcReviewer || actionPending || task.status !== "Under Review" || !remarks.trim()} onClick={() => runMove("Closed", remarks.trim())} type="button">Close after review</button></div>{task.status !== "Cancelled" && <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3"><label className="block text-sm font-medium text-slate-700">{task.status === "Closed" ? "Reopen reason" : "Cancellation reason"}</label><input className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" disabled={actionPending} value={actionReason} onChange={(event) => setActionReason(event.target.value)} placeholder={task.status === "Closed" ? "Required before reopening this closed task" : "Required before cancelling this task"} />{task.status === "Closed" ? <button className="mt-3 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50" disabled={!lcReopen || actionPending || !actionReason.trim()} onClick={() => runAction("reopen")} type="button">Reopen task</button> : <button className="mt-3 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50" disabled={!lcCancel || actionPending || !actionReason.trim()} onClick={() => runAction("cancel")} type="button">Cancel task</button>}</div>}{actionError && <p className="mt-3 text-sm text-red-600">{actionError}</p>}</div><div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Progress notes</h3><form className="mt-3 flex gap-2" onSubmit={submitNote}><input className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" disabled={!TASK_NOTES_ENABLED || noteSubmitting} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add progress note" /><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!TASK_NOTES_ENABLED || noteSubmitting || !note.trim()} type="submit">{noteSubmitting ? "Adding..." : "Add"}</button></form><div className="mt-4 space-y-3">{notesLoading ? <p className="text-sm text-slate-500">Loading notes...</p> : notesError ? <p className="text-sm text-red-600">{notesError}</p> : notes.length === 0 ? <p className="text-sm text-slate-500">No notes yet.</p> : notes.map((item) => <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm"><p className="text-slate-700">{item.note}</p><p className="mt-2 text-xs text-slate-500">{userNameByUserId(team, item.authorId)} - {new Date(item.createdAt).toLocaleString()}{(item.oldStatus || item.newStatus) ? " - Status: " + (item.oldStatus ? taskStatusCodeToUi(item.oldStatus) : "—") + " to " + (item.newStatus ? taskStatusCodeToUi(item.newStatus) : "—") : ""}</p></div>)}</div></div>{task.closureRemarks && <Info label="Closure remarks" value={task.closureRemarks} />}</div></aside></div>;
+  return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl"><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4"><div><button className="mb-2 text-sm font-semibold text-slate-600 hover:text-slate-950" onClick={close} type="button">Back</button><h2 className="text-xl font-semibold text-slate-950">{task.title}</h2><p className="mt-1 text-sm text-slate-500">{clientName(clients, task.clientId)}{ASSIGNMENTS_ENABLED ? " - " + assignmentName(assignments, task.assignmentId) : ""}</p></div><StatusPill status={task.status} /></div><div className="space-y-5 p-5"><div className="grid gap-3 md:grid-cols-2">{ASSIGNMENTS_ENABLED && <Info label="Assignment" value={assignmentName(assignments, task.assignmentId)} />}<Info label="Due date" value={task.dueDate + " - " + dueState(task).label} /><Info label="Priority" value={task.priority} /><Info label="Assignees" value={task.assigneeIds.map((id) => userNameByUserId(team, id)).join(", ")} /><Info label="Reviewer" value={userNameByUserId(team, task.reviewerId)} /></div>{task.description && <Info label="Description" value={task.description} />}<div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Workflow actions</h3><div className="mt-3 flex flex-wrap gap-2"><Workflow disabled={!lcCanUpdate || actionPending || task.status === "Under Review" || !lifecycleCanMoveTo(task.status, "In Progress")} label="Start / resume" action={() => runMove("In Progress")} /><Workflow disabled={!lcCanUpdate || actionPending || !lifecycleCanMoveTo(task.status, "Pending Client")} label="Pending client" action={() => runMove("Pending Client")} /><Workflow disabled={!lcCanUpdate || actionPending || !lifecycleCanMoveTo(task.status, "Pending Internal")} label="Pending internal" action={() => runMove("Pending Internal")} /><Workflow disabled={!lcAssignee || actionPending || !lifecycleCanMoveTo(task.status, "Under Review")} label="Move to review" action={() => runMove("Under Review")} /><Workflow disabled={!lcReviewer || actionPending || task.status !== "Under Review"} label="Send back" action={() => runMove("In Progress")} /></div><div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3"><label className="block text-sm font-medium text-slate-700">Closure remarks</label><textarea className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Required before reviewer closes the task" /><button className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" disabled={!lcReviewer || actionPending || task.status !== "Under Review" || !remarks.trim()} onClick={() => runMove("Closed", remarks.trim())} type="button">Close after review</button></div>{task.status !== "Cancelled" && <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3"><label className="block text-sm font-medium text-slate-700">{task.status === "Closed" ? "Reopen reason" : "Cancellation reason"}</label><input className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" disabled={actionPending} value={actionReason} onChange={(event) => setActionReason(event.target.value)} placeholder={task.status === "Closed" ? "Required before reopening this closed task" : "Required before cancelling this task"} />{task.status === "Closed" ? <button className="mt-3 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50" disabled={!lcReopen || actionPending || !actionReason.trim()} onClick={() => runAction("reopen")} type="button">Reopen task</button> : <button className="mt-3 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50" disabled={!lcCancel || actionPending || !actionReason.trim()} onClick={() => runAction("cancel")} type="button">Cancel task</button>}</div>}{actionError && <p className="mt-3 text-sm text-red-600">{actionError}</p>}</div><div className="rounded-lg border border-slate-200 bg-white p-4"><h3 className="font-semibold text-slate-950">Progress notes</h3><form className="mt-3 flex gap-2" onSubmit={submitNote}><input className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" disabled={!TASK_NOTES_ENABLED || noteSubmitting} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add progress note" /><button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!TASK_NOTES_ENABLED || noteSubmitting || !note.trim()} type="submit">{noteSubmitting ? "Adding..." : "Add"}</button></form><div className="mt-4 space-y-3">{notesLoading ? <p className="text-sm text-slate-500">Loading notes...</p> : notesError ? <p className="text-sm text-red-600">{notesError}</p> : notes.length === 0 ? <p className="text-sm text-slate-500">No notes yet.</p> : notes.map((item) => <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm"><p className="text-slate-700">{item.note}</p><p className="mt-2 text-xs text-slate-500">{userNameByUserId(team, item.authorId)} - {new Date(item.createdAt).toLocaleString()}{(item.oldStatus || item.newStatus) ? " - Status: " + (item.oldStatus ? taskStatusCodeToUi(item.oldStatus) : "—") + " to " + (item.newStatus ? taskStatusCodeToUi(item.newStatus) : "—") : ""}</p></div>)}</div></div>{task.closureRemarks && <Info label="Closure remarks" value={task.closureRemarks} />}</div></aside></div>;
 }
 
 function ModalFrame({ children, close, subtitle, title }: { children: React.ReactNode; close: () => void; subtitle: string; title: string }) {
@@ -2442,7 +2422,9 @@ function canManageUser(currentUser: TeamMember, target: TeamMember) {
 function canAccessSection(user: TeamMember, section: Section) {
   if (section === "dashboard" || section === "tasks") return true;
   if (section === "admin" || section === "team" || section === "firmSetup") return user.platformRole === "Platform Owner" || user.firmRole === "Firm Admin";
-  if (section === "assignments" || section === "projectReview" || section === "clients" || section === "reports") return user.platformRole === "Platform Owner" || user.firmRole !== "Article/Staff";
+  // Section 14 Step 5B-final-F3: Assignments + Project Review parked off the pilot nav (no Assignment backend).
+  if (section === "assignments" || section === "projectReview") return ASSIGNMENTS_ENABLED && (user.platformRole === "Platform Owner" || user.firmRole !== "Article/Staff");
+  if (section === "clients" || section === "reports") return user.platformRole === "Platform Owner" || user.firmRole !== "Article/Staff";
   return false;
 }
 
