@@ -35,7 +35,6 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   assignments as seedAssignments,
   clients as seedClients,
-  firm,
   plans,
   statuses,
   tasks as seedTasks,
@@ -538,7 +537,9 @@ export default function Home() {
   // name/domain can render before the server value loads.
   const [firmProfile, setFirmProfile] = useState<FirmProfile>({ id: "", name: "PracticeIQ Workspace", status: "Active", city: "", plan: "", emailDomain: "" });
   const [firmLoading, setFirmLoading] = useState(true);
-  const [firmDirectory, setFirmDirectory] = useState<FirmProfile[]>([firm]);
+  // Section 14 Step 5B-final-F2: the firm registry is derived from the active firm
+  // (server-sourced via /api/me). No localStorage source-of-truth; multi-firm parked.
+  const firmDirectory = useMemo<FirmProfile[]>(() => [firmProfile], [firmProfile]);
   // Section 14 Step 5B-5a: activity feed is the server ActivityLog only (GET /api/activity).
   // No local activity state, no seed, no localStorage source of truth.
   const [activityList, setActivityList] = useState<ActivityDTO[]>([]);
@@ -565,7 +566,7 @@ export default function Home() {
           clients?: Client[];
           team?: TeamMember[];
           // Section 14 Step 5B-final (F1): `firm` removed from hydrate; active firm loads from GET /api/me.
-          firms?: FirmProfile[];
+          // Section 14 Step 5B-final (F2): `firms` removed from hydrate; the registry derives from the active firm.
           // Section 14 Step 5B-5b: modules excluded from hydrate; API is source of truth.
         };
         if (saved.assignments) setAssignmentList(saved.assignments);
@@ -573,7 +574,7 @@ export default function Home() {
         // Section 14 Step 5B-1: clients are no longer hydrated from localStorage; they load from GET /api/clients.
         // Section 14 Step 5B-3a: team is no longer hydrated from localStorage; it loads from GET /api/team.
         // Section 14 Step 5B-final (F1): firm is no longer hydrated from localStorage; it loads from GET /api/me.
-        if (saved.firms) setFirmDirectory(saved.firms);
+        // Section 14 Step 5B-final (F2): firms is no longer hydrated; the registry derives from the active firm.
         // Section 14 Step 5B-5a: activity is no longer hydrated from localStorage; it loads from GET /api/activity.
         // Section 14 Step 5B-5b: modules are no longer hydrated from localStorage; they load from GET /api/modules.
       }
@@ -593,9 +594,9 @@ export default function Home() {
       // Section 14 Step 5B-5a: activity excluded from persist; API is source of truth.
       // Section 14 Step 5B-5b: modules excluded from persist; API is source of truth.
       // Section 14 Step 5B-final (F1): `firm` excluded from persist; API is source of truth.
-      firms: firmDirectory,
+      // Section 14 Step 5B-final (F2): `firms` excluded from persist; the registry derives from the active firm.
     }));
-  }, [assignmentList, firmDirectory, isHydrated]);
+  }, [assignmentList, isHydrated]);
 
   // Section 14 Step 5B-3a: resolve the current-user identity from GET /api/me
   // (server-authoritative platformRole + firmRole). No seed/email identity match.
@@ -1298,11 +1299,8 @@ export default function Home() {
             {currentSection === "team" && <TeamView actions={memberActions} team={teamList} user={user} open={TEAM_WRITES_ENABLED ? () => setModal("team") : () => {}} loading={teamLoading} error={teamError} notice={teamNotice} />}
             {currentSection === "reports" && <ReportsView tasks={taskList} clients={clientList} team={teamList} />}
             {currentSection === "firmSetup" && <FirmSetupView
-              canCreateFirm={user.platformRole === "Platform Owner"}
               currentFirm={firmProfile}
               firms={firmDirectory}
-              saveCurrentFirm={setFirmProfile}
-              saveFirms={setFirmDirectory}
               user={user}
             />}
             {currentSection === "admin" && <AdminView actions={memberActions} user={user} tasks={taskList} clients={clientList} team={teamList} activity={activityList} activityLoading={activityLoading} activityError={activityError} modules={modules} modulesLoading={modulesLoading} modulesError={modulesError} moduleTogglePending={moduleTogglePending} toggleModule={toggleModule} openTeam={TEAM_WRITES_ENABLED ? () => setModal("team") : () => {}} firm={firmProfile} />}
@@ -1464,7 +1462,7 @@ function Header({ active, canCreateTask, exportWorkspace, firm, logout, nav, ope
         : active === "firmSetup"
           ? "Add Firm"
           : "Create Task";
-  return <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/86 px-4 py-3 backdrop-blur md:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-blue-700">{firm.name}</p><h1 className="text-xl font-semibold text-slate-950 md:text-2xl">{title}</h1></div><div className="flex flex-wrap items-center gap-2"><span className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:inline-flex">{user.name}</span><button aria-label="Notifications prepared for reminder layer" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400" disabled title="Notifications will activate with email reminders" type="button"><Bell size={18} /></button>{nextModal ? <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" disabled={!canUsePrimaryAction} onClick={canUsePrimaryAction ? () => open(nextModal) : undefined} title={!canUsePrimaryAction ? disabledReason : undefined} type="button"><Plus size={18} />{actionLabel}</button> : <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700" disabled title={disabledReason} type="button"><Plus size={18} />{actionLabel}</button>}<button aria-label="Export workspace backup (JSON)" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={exportWorkspace} title="Download a JSON backup of this workspace" type="button"><FileDown size={18} /></button><button aria-label="Log out" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={logout} type="button"><LogOut size={18} /></button></div></div><nav className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden" aria-label="Mobile workspace navigation">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600") + " inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"} onClick={() => setActive(item.id)} type="button"><Icon size={16} />{item.label}</button>; })}</nav></header>;
+  return <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/86 px-4 py-3 backdrop-blur md:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-blue-700">{firm.name}</p><h1 className="text-xl font-semibold text-slate-950 md:text-2xl">{title}</h1></div><div className="flex flex-wrap items-center gap-2"><span className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:inline-flex">{user.name}</span><button aria-label="Notifications prepared for reminder layer" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400" disabled title="Notifications will activate with email reminders" type="button"><Bell size={18} /></button>{nextModal ? <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" disabled={!canUsePrimaryAction} onClick={canUsePrimaryAction ? () => open(nextModal) : undefined} title={!canUsePrimaryAction ? disabledReason : undefined} type="button"><Plus size={18} />{actionLabel}</button> : null}<button aria-label="Export workspace backup (JSON)" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={exportWorkspace} title="Download a JSON backup of this workspace" type="button"><FileDown size={18} /></button><button aria-label="Log out" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={logout} type="button"><LogOut size={18} /></button></div></div><nav className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden" aria-label="Mobile workspace navigation">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} className={(active === item.id ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600") + " inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"} onClick={() => setActive(item.id)} type="button"><Icon size={16} />{item.label}</button>; })}</nav></header>;
 }
 
 function RoleDashboardView({ assignments, clients, modules, openAssignment, openTask, setActive, tasks, team, user }: { assignments: Assignment[]; clients: Client[]; modules: ModuleFlag[]; openAssignment: () => void; openTask: (id: string) => void; setActive: (section: Section) => void; tasks: Task[]; team: TeamMember[]; user: TeamMember }) {
@@ -1773,113 +1771,58 @@ function ClientsView({ assignments, clients, error, loading, notice, open, tasks
 }
 
 function FirmSetupView({
-  canCreateFirm,
   currentFirm,
   firms,
-  saveCurrentFirm,
-  saveFirms,
   user,
 }: {
-  canCreateFirm: boolean;
   currentFirm: FirmProfile;
   firms: FirmProfile[];
-  saveCurrentFirm: (firm: FirmProfile) => void;
-  saveFirms: (firms: FirmProfile[]) => void;
   user: TeamMember;
 }) {
-  function submitCurrentFirm(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const name = String(form.get("name") || "").trim();
-    const city = String(form.get("city") || "").trim();
-    const plan = String(form.get("plan") || "").trim();
-    const status = String(form.get("status") || "Active") as FirmProfile["status"];
-    const emailDomain = String(form.get("emailDomain") || "").trim().toLowerCase();
-    if (!name || !city || !plan) return;
-    const next = { ...currentFirm, name, city, plan, status, emailDomain };
-    saveCurrentFirm(next);
-    saveFirms(firms.map((item) => item.id === currentFirm.id ? next : item));
-  }
-
-  function submitNewFirm(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!canCreateFirm) return;
-    const form = new FormData(event.currentTarget);
-    const name = String(form.get("newName") || "").trim();
-    const city = String(form.get("newCity") || "").trim();
-    const plan = String(form.get("newPlan") || "").trim();
-    const status = String(form.get("newStatus") || "Trial") as FirmProfile["status"];
-    const emailDomain = String(form.get("newEmailDomain") || "").trim().toLowerCase();
-    if (!name || !city || !plan || !emailDomain) return;
-    const nextFirm: FirmProfile = {
-      id: "firm_" + Date.now(),
-      name,
-      city,
-      plan,
-      status,
-      emailDomain,
-    };
-    saveFirms([nextFirm, ...firms]);
-    (event.currentTarget as HTMLFormElement).reset();
-  }
-
+  // Section 14 Step 5B-final-F2: read-only active-firm view. The local-only write
+  // actions (Save Active Firm, Add Firm) were parked - they had no server backing
+  // and did not persist after F1. Multi-firm onboarding stays parked. No mutations.
   return <div className="space-y-4">
     <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="text-lg font-semibold text-slate-950">Firm Setup</h2>
-      <p className="mt-1 text-sm text-slate-500">Set active firm identity and register additional firms for onboarding.</p>
+      <p className="mt-1 text-sm text-slate-500">Review the active firm identity used for this workspace. Multi-firm onboarding is parked for this release.</p>
     </div>
 
     <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <h3 className="font-semibold text-slate-950">Active firm profile</h3>
-      <form className="mt-3 grid gap-3 md:grid-cols-2" onSubmit={submitCurrentFirm}>
-        <Field defaultValue={currentFirm.name} label="Firm name" name="name" required />
-        <Field defaultValue={currentFirm.city} label="City" name="city" required />
-        <Field defaultValue={currentFirm.plan} label="Plan" name="plan" required />
-        <Field defaultValue={currentFirm.emailDomain} label="Email domain" name="emailDomain" />
-        <Select label="Status" name="status" required>
-          <option value={currentFirm.status}>{currentFirm.status}</option>
-          {["Active", "Trial", "Paused"].filter((value) => value !== currentFirm.status).map((value) => <option key={value} value={value}>{value}</option>)}
-        </Select>
-        <div className="self-end">
-          <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700" type="submit">Save Active Firm</button>
-        </div>
-      </form>
+      <h3 className="font-semibold text-slate-950">Active firm</h3>
+      <dl className="mt-3 grid gap-3 md:grid-cols-2">
+        <FirmDetail label="Firm name" value={currentFirm.name} />
+        <FirmDetail label="City" value={currentFirm.city || "Not set"} />
+        <FirmDetail label="Plan" value={currentFirm.plan || "Not set"} />
+        <FirmDetail label="Email domain" value={currentFirm.emailDomain || "Not set"} />
+        <FirmDetail label="Status" value={currentFirm.status} />
+      </dl>
     </div>
 
     <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-slate-950">Firm registry</h3>
-        {!canCreateFirm && <span className="text-xs text-amber-700">Only Platform Owner can add firms.</span>}
+        <span className="text-xs text-slate-500">Single-firm workspace</span>
       </div>
       <div className="mt-3 space-y-2">
         {firms.map((item) => <div key={item.id} className="grid gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 md:grid-cols-[1.2fr_0.7fr_0.6fr_0.8fr]">
           <div>
             <p className="font-semibold text-slate-900">{item.name}</p>
-            <p className="text-xs text-slate-500">{item.emailDomain}</p>
+            <p className="text-xs text-slate-500">{item.emailDomain || "Not set"}</p>
           </div>
-          <p className="text-sm text-slate-700">{item.city}</p>
-          <p className="text-sm text-slate-700">{item.plan}</p>
+          <p className="text-sm text-slate-700">{item.city || "Not set"}</p>
+          <p className="text-sm text-slate-700">{item.plan || "Not set"}</p>
           <p className="text-sm font-medium text-slate-700">{item.status}</p>
         </div>)}
       </div>
-
-      <form className="mt-4 grid gap-3 border-t border-slate-200 pt-4 md:grid-cols-2" onSubmit={submitNewFirm}>
-        <Field label="Firm name" name="newName" placeholder="Example LLP" required />
-        <Field label="City" name="newCity" placeholder="Mumbai" required />
-        <Field label="Plan" name="newPlan" placeholder="Starter / Professional" required />
-        <Field label="Email domain" name="newEmailDomain" placeholder="example.com" required />
-        <Select label="Status" name="newStatus" required>
-          <option>Trial</option>
-          <option>Active</option>
-          <option>Paused</option>
-        </Select>
-        <div className="self-end">
-          <button className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50" disabled={!canCreateFirm} title={canCreateFirm ? "Register new firm" : "Only Platform Owner can register firms"} type="submit">Add Firm</button>
-        </div>
-      </form>
+      <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-500">Multi-firm onboarding is not enabled in this release. Additional firms are added by your platform administrator.</p>
       <p className="mt-3 text-xs text-slate-500">Logged in as: {user.platformRole === "Platform Owner" ? "Platform Owner" : user.firmRole}</p>
     </div>
   </div>;
+}
+
+function FirmDetail({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-lg border border-slate-100 bg-slate-50 p-3"><dt className="text-xs font-semibold uppercase text-slate-500">{label}</dt><dd className="mt-1 text-sm font-medium text-slate-900">{value}</dd></div>;
 }
 
 function TeamView({ actions, open, team, user, loading, error, notice }: { actions: MemberActions; open: () => void; team: TeamMember[]; user: TeamMember; loading: boolean; error: ApiError | null; notice: string | null }) {
