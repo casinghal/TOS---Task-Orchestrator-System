@@ -1983,3 +1983,27 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Status**: temp Gmail firm `emailDomain` must-fix is **CLOSED**; the workspace firm identity is now `TAMS & CO LLP` / `tams.co.in`. **Next gate: final controlled smoke for TAMS pilot readiness; then TAMS-domain user mapping once `pankaj.singhal@tams.co.in` exists; then the RLS pre-pilot security wave.** Parked: AI/intelligence, billing, multi-firm switcher, UI redesign, real Assignment backend, people-control exposure work.
 
 ---
+
+## C-2026-06-12-02 - Final controlled smoke for TAMS pilot-readiness viewing (PASS): documentation sync
+
+- **Date**: 2026-06-12
+- **Task**: Record the final controlled smoke that proves the TAMS-facing workspace is ready for pilot viewing. The smoke was **read-only** - no writes of any kind. Documentation-only sync; no source/runtime code changed.
+- **Runtime/source commit**: remains `5a9194a` (unchanged). Prior repo/doc HEAD before this doc-sync is `bc5d91a` (the C-2026-06-12-01 firm-identity doc-sync). No new runtime SHA - documentation-only, per Synchronization Rule #8.
+- **Smoke nature**: read-only only - read-only SQL SELECTs + signed-in/signed-out `GET` fetches + UI navigation. **No POST/PATCH/DELETE; no Supabase mutation; no production calls; no source/runtime code change.** Optional labelled write (Decision-10 Option B) was NOT run.
+- **DB baseline snapshot (read-only)**: Firm count **1**; `firm_primary` = `TAMS & CO LLP` / `tams.co.in` / `Mumbai` / `ACTIVE` / `planId null`; Client **0**; Task **0**; FirmMember **1**; PlatformUser **1**; TaskNotes **0**; TaskAssignees **0**; no live `ZZ_TEST_STAB_*`, `ZZ_SMOKE`, or `zz-*@example.com` residue.
+- **Signed-in identity**: `GET /api/me` 200 showed `firmName=TAMS & CO LLP`, `firmEmailDomain=tams.co.in`, `userId=pu_owner`, PLATFORM_OWNER / FIRM_ADMIN (existing Gmail control login intact).
+- **UI identity**: header brand + sidebar Active Firm + Firm Setup all show `TAMS & CO LLP` / `tams.co.in` (Firm Setup: name `TAMS & CO LLP`, city Mumbai, plan Not set, email domain `tams.co.in`, status Active; single-firm registry row - no second firm).
+- **Dashboard**: loaded with **no demo flash** (no transient "Active Users 5", no "0/0 modules"); settled KPIs Open 0 / Closed 0 / Active Assignments 0 / Active Users 1 / 4-8 modules enabled.
+- **Section reads**: Clients (`GET /api/clients` 200, empty), Task Queue (`GET /api/tasks` 200, empty, KPI cards 0), Team (`GET /api/team` 200, one member = Pankaj / Firm Admin / Active, no test members), Reports (clean, all 0, no errors), Module Governance (catalog 8 modules, 0 firm overrides -> 4/8 enabled by defaults; not toggled), Activity Monitor (`GET /api/activity` 200) - all read cleanly.
+- **Signed-out protected API matrix** (cookie-omit `GET`): `/api/{me,clients,tasks,team,modules,activity}` each returned **401** with exact body `{"ok":false,"message":"Authentication required."}`.
+- **localStorage**: keys = [`ally-supports-cache`] only; `practiceiq-live-v1` **absent**.
+- **Console**: no smoke-window runtime errors (the only ERROR is a pre-existing dev HMR hook-deps warning, not smoke-attributable).
+- **Activity Monitor detail**: the intended `FIRM_UPDATE` (FIRM / `firm_primary` / `pu_owner`, 12/06/2026) is present. ActivityLog total = 18 rows = documented historical audit evidence from the prior 5B cutover UAT waves (24 May - 10 Jun) **plus** the one `FIRM_UPDATE`; none correspond to live data (Client/Task/Note/Assignee all 0) and none are W-series `ZZ_TEST_STAB_*` rows (those were cleaned per-wave). Per the accepted standard, documented older audit evidence is acceptable (log-only, not live test residue).
+- **Minor non-blocking polish observation**: the Admin "Subscription and Controls" card highlights **Professional "Active"** while Firm Setup shows PLAN "Not set" and the DB `planId` is `null` - a cosmetic display inconsistency between two surfaces (the Admin plan-tier card default-highlights a tier). Pre-existing UI behavior; no data effect; identity correct. Marked as **cosmetic future polish, NOT a pilot blocker**.
+- **Files changed (this documentation-only wave)**: `CHANGE_LOG.md` (this entry); `CURRENT_STATUS.md`; `MASTER_PROJECT.md`.
+- **No new decision**: read-only smoke; no `DECISION_LOG.md` entry.
+- **Out of scope (intentional)**: no source/runtime change; no schema/migration/API/package/env/config change; no Netlify/Supabase change; no POST/PATCH/DELETE; no production call; no `DECISION_LOG.md`/`AGENTS.md` change; no staging/commit/push in this wave; no AI/billing/UI-redesign/multi-firm-switcher/real-Assignment-backend/people-control-exposure work.
+- **Testing required**: none beyond doc review (the smoke itself was the validation).
+- **Status / Verdict**: **TAMS pilot-readiness viewing PASS.** The workspace presents a clean, correct single-firm TAMS identity, protected APIs are locked signed-out, no source-of-truth or live test residue, all surfaces read cleanly, and the only audit history is documented prior-UAT evidence plus the intended firm-update row. **Next gates (separate, plan-first): TAMS-domain user mapping once `pankaj.singhal@tams.co.in` exists (Gmail control login retained meanwhile); then the RLS pre-pilot security wave.** Parked: AI/intelligence, billing, multi-firm switcher, UI redesign, real Assignment backend, people-control exposure work. Open cosmetic polish: Admin plan-tier vs Firm Setup plan display.
+
+---
