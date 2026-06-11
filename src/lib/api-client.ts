@@ -196,6 +196,10 @@ export interface MeDTO {
 export interface ModuleDTO {
   key: string;
   name: string;
+  // description and defaultEnabled are returned by GET /api/modules (list) only.
+  // PATCH /api/modules/[key] returns { key, name, isEnabled } — these fields are absent.
+  description?: string;
+  defaultEnabled?: boolean;
   isEnabled: boolean;
 }
 
@@ -337,8 +341,10 @@ export const activityApi = {
 };
 
 export const modulesApi = {
-  list: () => apiGet<ModuleDTO[]>("/api/modules"),
-  // PATCH success requires a PLATFORM_OWNER session; non-PO roles get 403 (5B-5 UAT).
+  // GET /api/modules returns { ok: true, data: { items: [...] } }; apiGet unwraps data.
+  list: () => apiGet<{ items: ModuleDTO[] }>("/api/modules"),
+  // PATCH success requires a PLATFORM_OWNER session; non-PO roles get 403 (5B-5b UAT).
+  // Returns { key, name, isEnabled } — description/defaultEnabled absent (optional on DTO).
   setEnabled: (key: string, isEnabled: boolean) => apiPatch<ModuleDTO>(`/api/modules/${key}`, { isEnabled }),
 };
 

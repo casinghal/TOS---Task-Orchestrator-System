@@ -36,7 +36,6 @@ import {
   assignments as seedAssignments,
   clients as seedClients,
   firm,
-  initialModuleFlags,
   plans,
   statuses,
   tasks as seedTasks,
@@ -51,7 +50,7 @@ import {
   type TeamMember,
 } from "@/lib/workspace-data";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
-import { clientsApi, teamApi, meApi, tasksApi, activityApi, ApiError, type ClientDTO, type TeamMemberDTO, type MeDTO, type TaskDTO, type TaskNoteDTO, type ActivityDTO } from "@/lib/api-client";
+import { clientsApi, teamApi, meApi, tasksApi, activityApi, modulesApi, ApiError, type ClientDTO, type TeamMemberDTO, type MeDTO, type TaskDTO, type TaskNoteDTO, type ActivityDTO } from "@/lib/api-client";
 // Section 14 Step 5B-4c-1a: reuse the server transition matrix for transition-aware
 // UI gating (no drift). Pure constants module; client-safe. Code-vocabulary type
 // aliased to avoid colliding with the UI-label TaskStatus from workspace-data.
@@ -132,6 +131,14 @@ const TASK_PEOPLE_ENABLED = true;
 // GET /api/tasks/[id]/notes (5B-4d-2a) and adds notes via POST /api/tasks/[id]/notes
 // then refetches (no local echo). TASK_WRITES_ENABLED stays false (resequence parked).
 const TASK_NOTES_ENABLED = true;
+
+// Section 14 Step 5B-5b: modules READ cutover. The modules list reads from
+// GET /api/modules (API is source of truth). MODULES_READ_ENABLED gates the fetch
+// effect. MODULE_TOGGLE_ENABLED gates the async PATCH toggle path. Both are true
+// because the domain is small enough to cut reads and writes in a single wave.
+// PLATFORM_OWNER only for PATCH; all roles can read (MODULES_VIEW permission).
+const MODULES_READ_ENABLED = true;
+const MODULE_TOGGLE_ENABLED = true;
 
 // FirmRole code (API) -> UI display string.
 function firmRoleCodeToUi(code: string): FirmRole {
@@ -509,7 +516,13 @@ export default function Home() {
   const [activityList, setActivityList] = useState<ActivityDTO[]>([]);
   const [activityLoading, setActivityLoading] = useState(true);
   const [activityError, setActivityError] = useState<ApiError | null>(null);
-  const [modules, setModules] = useState<ModuleFlag[]>(initialModuleFlags);
+  // Section 14 Step 5B-5b: modules load from GET /api/modules (API is source of truth).
+  // No seed, no localStorage fallback after cutover.
+  const [modules, setModules] = useState<ModuleFlag[]>([]);
+  const [modulesLoading, setModulesLoading] = useState(true);
+  const [modulesError, setModulesError] = useState<ApiError | null>(null);
+  // In-flight guard: key of the module currently being toggled; null when idle.
+  const [moduleTogglePending, setModuleTogglePending] = useState<string | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const [loginTip, setLoginTip] = useState(loginTips[0]);
 
@@ -525,7 +538,7 @@ export default function Home() {
           team?: TeamMember[];
           firm?: FirmProfile;
           firms?: FirmProfile[];
-          modules?: ModuleFlag[];
+          // Section 14 Step 5B-5b: modules excluded from hydrate; API is source of truth.
         };
         if (saved.assignments) setAssignmentList(saved.assignments);
         // Section 14 Step 5B-4a: tasks are no longer hydrated from localStorage; they load from GET /api/tasks.
@@ -534,7 +547,7 @@ export default function Home() {
         if (saved.firm) setFirmProfile(saved.firm);
         if (saved.firms) setFirmDirectory(saved.firms);
         // Section 14 Step 5B-5a: activity is no longer hydrated from localStorage; it loads from GET /api/activity.
-        if (saved.modules) setModules(saved.modules);
+        // Section 14 Step 5B-5b: modules are no longer hydrated from localStorage; they load from GET /api/modules.
       }
     } finally {
       setIsHydrated(true);
@@ -550,11 +563,11 @@ export default function Home() {
       // The pre-cutover `clients` key already in localStorage is left intact as backup.
       // Section 14 Step 5B-3a: team excluded from persist; API is source of truth. Pre-cutover team cache left intact.
       // Section 14 Step 5B-5a: activity excluded from persist; API is source of truth.
+      // Section 14 Step 5B-5b: modules excluded from persist; API is source of truth.
       firm: firmProfile,
       firms: firmDirectory,
-      modules,
     }));
-  }, [assignmentList, firmDirectory, firmProfile, isHydrated, modules]);
+  }, [assignmentList, firmDirectory, firmProfile, isHydrated]);
 
   // Section 14 Step 5B-3a: resolve the current-user identity from GET /api/me
   // (server-authoritative platformRole + firmRole). No seed/email identity match.
@@ -701,6 +714,39 @@ export default function Home() {
         if (!active) return;
         setActivityError(error instanceof ApiError ? error : new ApiError("server", 0, "Unable to load activity."));
         setActivityLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [sessionUserId]);
+
+  // Section 14 Step 5B-5b: modules read cutover. Reads from GET /api/modules once a
+  // session exists. Maps API ModuleDTO to the existing ModuleFlag UI shape using
+  // id: dto.key so downstream components need no structural changes.
+  // Never falls back to seed/localStorage. Strict-Mode-safe via `active` guard.
+  // modulesLoading initializes to true; setModulesLoading(false) runs only in the
+  // async resolve/reject paths (no synchronous setState in effect body).
+  useEffect(() => {
+    if (!sessionUserId || !MODULES_READ_ENABLED) return;
+    let active = true;
+    modulesApi
+      .list()
+      .then((result) => {
+        if (!active) return;
+        setModules(result.items.map((dto) => ({
+          id: dto.key,
+          key: dto.key,
+          name: dto.name,
+          enabled: dto.isEnabled,
+          visibility: dto.isEnabled ? "Visible" : "Hidden",
+        })));
+        setModulesError(null);
+        setModulesLoading(false);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setModulesError(error instanceof ApiError ? error : new ApiError("server", 0, "Unable to load modules."));
+        setModulesLoading(false);
       });
     return () => {
       active = false;
@@ -1081,16 +1127,35 @@ export default function Home() {
   // uses taskSequence() (default sort fallback). A real resequence API is
   // deferred (recorded in DECISION_LOG during the 5B-4e doc-sync).
 
-  function toggleModule(moduleId: string) {
-    if (!user || !isPlatformOwner) return;
-    setModules((current) => current.map((module) => module.id === moduleId ? {
-      ...module,
-      enabled: !module.enabled,
-      visibility: module.enabled ? "Hidden" : "Visible",
-    } : module));
-    // Section 14 Step 5B-5a: no local activity log. Module access is still a local
-    // toggle (modules cutover is 5B-5b); once it writes through PATCH /api/modules
-    // the server MODULE_ACCESS_CHANGE audit row will surface in the activity feed.
+  // Section 14 Step 5B-5b: async server toggle. PLATFORM_OWNER only; gated by
+  // MODULE_TOGGLE_ENABLED. moduleId === dto.key (mapped via id: dto.key at read time).
+  // In-flight guard prevents double-toggles. On success: refetch GET /api/modules and
+  // remap to ModuleFlag shape (server is source of truth; no local optimistic mutation).
+  // The server emits a MODULE_ACCESS_CHANGE audit row (fail-open) on each PATCH.
+  async function toggleModule(moduleId: string) {
+    if (!user || !isPlatformOwner || !MODULE_TOGGLE_ENABLED) return;
+    const target = modules.find((m) => m.id === moduleId);
+    if (!target || moduleTogglePending !== null) return;
+    setModuleTogglePending(moduleId);
+    try {
+      // setEnabled throws ApiError on failure — no .ok check needed.
+      await modulesApi.setEnabled(target.key, !target.enabled);
+      // Refetch the full list to keep the UI in sync with the server state.
+      // list() also throws ApiError on failure.
+      const listResult = await modulesApi.list();
+      setModules(listResult.items.map((dto) => ({
+        id: dto.key,
+        key: dto.key,
+        name: dto.name,
+        enabled: dto.isEnabled,
+        visibility: dto.isEnabled ? "Visible" : "Hidden",
+      })));
+      setModulesError(null);
+    } catch (error: unknown) {
+      setModulesError(error instanceof ApiError ? error : new ApiError("server", 0, "Could not update module."));
+    } finally {
+      setModuleTogglePending(null);
+    }
   }
 
   async function login(email: string, password: string) {
@@ -1202,7 +1267,7 @@ export default function Home() {
               saveFirms={setFirmDirectory}
               user={user}
             />}
-            {currentSection === "admin" && <AdminView actions={memberActions} user={user} tasks={taskList} clients={clientList} team={teamList} activity={activityList} activityLoading={activityLoading} activityError={activityError} modules={modules} toggleModule={toggleModule} openTeam={TEAM_WRITES_ENABLED ? () => setModal("team") : () => {}} firm={firmProfile} />}
+            {currentSection === "admin" && <AdminView actions={memberActions} user={user} tasks={taskList} clients={clientList} team={teamList} activity={activityList} activityLoading={activityLoading} activityError={activityError} modules={modules} modulesLoading={modulesLoading} modulesError={modulesError} moduleTogglePending={moduleTogglePending} toggleModule={toggleModule} openTeam={TEAM_WRITES_ENABLED ? () => setModal("team") : () => {}} firm={firmProfile} />}
           </div>
         </section>
       </div>
@@ -1819,7 +1884,7 @@ function ReportsView({ clients, tasks, team }: { clients: Client[]; tasks: Task[
   return <div className="space-y-4"><div className="grid gap-3 md:grid-cols-4"><ReportPanel title="Active tasks" value={String(active.length)} detail="Open through review" icon={ClipboardList} /><ReportPanel title="Overdue" value={String(overdue)} detail="Needs attention" icon={AlertTriangle} /><ReportPanel title="Review queue" value={String(tasks.filter((task) => task.status === "Under Review").length)} detail="Pending closure" icon={Eye} /><ReportPanel title="Top workload" value={busiest?.name ?? "None"} detail="Assignee load" icon={Users} /></div><div className="grid gap-4 xl:grid-cols-2"><div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-semibold text-slate-950">Status distribution</h2><div className="mt-4 grid gap-3 md:grid-cols-3">{statuses.map((status) => <div key={status} className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-medium text-slate-500">{status}</p><p className="mt-2 text-2xl font-semibold text-slate-950">{tasks.filter((task) => task.status === status).length}</p></div>)}</div></div><div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-semibold text-slate-950">Client-wise workload</h2><div className="mt-4 space-y-3">{clients.map((client) => <div key={client.id} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm"><span className="font-medium text-slate-700">{client.name}</span><span className="font-semibold text-slate-950">{tasks.filter((task) => task.clientId === client.id && task.status !== "Closed").length} active</span></div>)}</div></div></div></div>;
 }
 
-function AdminView({ actions, activity, activityLoading, activityError, clients, firm, modules, openTeam, tasks, team, toggleModule, user }: { actions: MemberActions; activity: ActivityDTO[]; activityLoading: boolean; activityError: ApiError | null; clients: Client[]; firm: FirmProfile; modules: ModuleFlag[]; openTeam: () => void; tasks: Task[]; team: TeamMember[]; toggleModule: (id: string) => void; user: TeamMember }) {
+function AdminView({ actions, activity, activityLoading, activityError, clients, firm, modules, modulesLoading, modulesError, moduleTogglePending, openTeam, tasks, team, toggleModule, user }: { actions: MemberActions; activity: ActivityDTO[]; activityLoading: boolean; activityError: ApiError | null; clients: Client[]; firm: FirmProfile; modules: ModuleFlag[]; modulesLoading: boolean; modulesError: ApiError | null; moduleTogglePending: string | null; openTeam: () => void; tasks: Task[]; team: TeamMember[]; toggleModule: (id: string) => void; user: TeamMember }) {
   const owner = user.platformRole === "Platform Owner";
   const activeTasks = tasks.filter((task) => task.status !== "Closed");
   const overdueTasks = activeTasks.filter((task) => task.dueDate < todayIso);
@@ -1909,7 +1974,13 @@ function AdminView({ actions, activity, activityLoading, activityError, clients,
     <section className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
       <AdminPanel title="Module Governance" subtitle="Turn advanced modules on only when the firm is ready to use them." icon={SlidersHorizontal}>
         <div className="grid gap-3 md:grid-cols-2">
-          {modules.map((item) => <ModuleControlCard key={item.id} item={item} owner={owner} toggleModule={toggleModule} />)}
+          {modulesLoading ? (
+            <div className="col-span-2 rounded-lg border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">Loading modules…</div>
+          ) : modulesError ? (
+            <div className="col-span-2 rounded-lg border border-dashed border-rose-200 bg-rose-50 p-6 text-center text-sm text-rose-700">Could not load modules. Please reload the page.</div>
+          ) : (
+            modules.map((item) => <ModuleControlCard key={item.id} item={item} owner={owner} toggleModule={toggleModule} togglePending={moduleTogglePending !== null} />)
+          )}
         </div>
       </AdminPanel>
 
@@ -1937,7 +2008,7 @@ function AdminView({ actions, activity, activityLoading, activityError, clients,
         <div className="space-y-3">
           <ActionTile done label="Core task tracking" text="Create, assign, review, and close tasks." />
           <ActionTile done label="Client master" text="Minimum client record before task creation." />
-          <ActionTile done={modules.find((module) => module.id === "m_reports")?.enabled ?? false} label="Reports visibility" text="Analytics visible to admin and manager roles." />
+          <ActionTile done={modules.find((module) => module.key === "REPORTS_ADVANCED")?.enabled ?? false} label="Reports visibility" text="Analytics visible to admin and manager roles." />
           <ActionTile done={owner} label="Owner control" text={owner ? "Platform owner controls available." : "Sign in as Platform Owner for full controls."} />
         </div>
       </AdminPanel>
@@ -1993,11 +2064,11 @@ function RoleBadge({ role }: { role: string }) {
   return <span className={`${tone} inline-flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold`}>{role.slice(0, 1)}</span>;
 }
 
-function ModuleControlCard({ item, owner, toggleModule }: { item: ModuleFlag; owner: boolean; toggleModule: (id: string) => void }) {
+function ModuleControlCard({ item, owner, toggleModule, togglePending }: { item: ModuleFlag; owner: boolean; toggleModule: (id: string) => void; togglePending: boolean }) {
   return <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 transition hover:border-slate-200 hover:bg-white" title={`${item.name}: ${item.visibility}`}>
     <div className="flex items-start justify-between gap-3">
       <div><p className="text-sm font-semibold text-slate-900">{item.name}</p><p className="mt-1 text-xs text-slate-500">{item.key}</p></div>
-      <button className={(item.enabled ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700") + " rounded-full px-3 py-1 text-xs font-semibold transition hover:scale-105 disabled:hover:scale-100"} disabled={!owner} onClick={() => toggleModule(item.id)} title={owner ? `Toggle ${item.name}` : "Only Platform Owner can change module access"} type="button">{item.enabled ? "Enabled" : "Hidden"}</button>
+      <button className={(item.enabled ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700") + " rounded-full px-3 py-1 text-xs font-semibold transition hover:scale-105 disabled:hover:scale-100"} disabled={!owner || togglePending} onClick={() => toggleModule(item.id)} title={owner ? `Toggle ${item.name}` : "Only Platform Owner can change module access"} type="button">{item.enabled ? "Enabled" : "Hidden"}</button>
     </div>
     <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white"><div className={(item.enabled ? "w-full bg-emerald-500" : "w-1/3 bg-slate-300") + " h-full rounded-full transition-all duration-500"} /></div>
   </div>;
