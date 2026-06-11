@@ -1918,3 +1918,25 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Status**: 5B-final-F3 code completed, deployed, and verified at `39acf9c`. After this documentation sync is committed and pushed, F3 is closed and **5B-final is COMPLETE** - no localStorage source-of-truth remains. **Next gate: post-5B-final stabilization / core-live regression (plan-first only) - verify the full server-backed app end-to-end before the TAMS pilot; no new feature work until that gate is planned and approved.**
 
 ---
+
+## C-2026-06-11-05 - Post-5B-final stabilization (STAB): remove demo-seed first-paint state: documentation sync
+
+- **Date**: 2026-06-11
+- **Task**: Record the first post-5B-final stabilization source fix. The read-only stabilization baseline found one credibility issue: the Dashboard could briefly compute KPIs from demo-seed initial state (e.g., "Active Users 5") and from the empty modules state ("0/0 modules") before the API reads settle. Fix: API-backed runtime lists no longer initialise from demo seeds, and the Dashboard waits behind existing loading flags before rendering its KPI cards. Frontend-only; no localStorage source-of-truth reintroduced; no schema/API/env/package/config change.
+- **Source commit**: `5a9194a` (`Section 14 post-5B-final-STAB: Remove demo seed first-paint state`). Prior repo/doc HEAD was the C-2026-06-11-04 doc-sync (runtime marker `39acf9c` from 5B-final-F3). Netlify production published on `main@5a9194a`. Runtime/code SHA advances `39acf9c` -> `5a9194a`.
+- **Code changed (in `5a9194a`, one file: `src/app/page.tsx`)**:
+  - `clientList`, `taskList`, `teamList` now initialise as empty arrays (`useState<...>([])`) instead of the demo seeds; the unused `seedClients` / `seedTasks` / `seedTeam` imports were removed.
+  - The Dashboard render is gated behind the existing loading flags - `clientsLoading || tasksLoading || teamLoading || modulesLoading` - showing a "Loading workspace…" placeholder until all four resolve, then rendering `RoleDashboardView`. Mirrors the existing Task Queue loading pattern; no KPI redesign. The "Active assignments: 0" KPI and all other cards are unchanged after load.
+  - Hang-safety: all four read effects clear their loading flag in both the success path and the `.catch`, so an API error releases the gate (no stuck "Loading workspace…").
+- **Effect**: prevents transient fake/demo values (e.g., Active Users 5, modules 0/0) from rendering before API responses settle; other screens (Task Queue / Clients / Team) already gate on their own loading states and were unaffected.
+- **No new decision**: stabilization fix; no `DECISION_LOG.md` entry.
+- **Static validation (Windows)**: `git diff --name-only` = `src/app/page.tsx` (only); `git diff --check` clean; no `seedClients`/`seedTasks`/`seedTeam` references remain; empty initialisers present; `Loading workspace…` present; `npm run uat:check` passed (lint + prisma validate + next build).
+- **Read-only localhost confirmation**: reload showed no demo flash; settled KPIs showed real values (Active Users 1, 4/8 modules); `practiceiq-live-v1` absent; app `/api/` traffic GET-only; console clean.
+- **Production verification (signed-out)**: production published on `main@5a9194a`; signed-out smoke `GET /api/{me,clients,team,tasks,activity,modules}` each returned 401 with body `{"ok":false,"message":"Authentication required."}` (GET only; no authenticated production call; no production mutation).
+- **Files changed (this documentation-only wave)**: `CHANGE_LOG.md` (this entry); `CURRENT_STATUS.md`; `MASTER_PROJECT.md`.
+- **Reason**: per Synchronization Rule #8, `5a9194a` is runtime-bearing; this wave advances the SHA marker and records the stabilization fix.
+- **Out of scope (intentional)**: no source change in this doc wave; no schema / migration / API / package / env / config change; no Netlify/Supabase change; no `DECISION_LOG.md` / `AGENTS.md` change; no controlled-write UAT; no UI polish; no AI work; no staging/commit/push in this wave.
+- **Testing required**: none beyond doc review. Validated via Windows `npm run uat:check`, the read-only localhost confirmation, and the production signed-out smoke above.
+- **Status**: post-5B-final stabilization fix completed, deployed, and verified at `5a9194a`. 5B-final remains COMPLETE (no localStorage source-of-truth). **Next gate: controlled-write core-live regression UAT (W1 clients create -> W2 tasks create -> W3 task lifecycle -> W4 task people/notes -> W5 team writes), plan-first and approval-gated, with labelled test data + cleanup, before TAMS pilot readiness.** Open must-fix also includes replacing the temp Gmail firm `emailDomain` with the real firm domain.
+
+---
