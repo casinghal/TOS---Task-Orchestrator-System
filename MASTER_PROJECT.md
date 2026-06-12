@@ -1150,3 +1150,117 @@ The Platform Ownership Register template lives in Section 22.7. Its **population
 **Section 14 non-impact:**
 
 This section does NOT reorder, weaken, delay, or override Section 14. The locked execution sequence remains: Step 3D Tasks → 3E Team → 3F Modules → Step 4 Auth + RBAC → Step 5 Persistence cutover. 3D will be the first execution wave run with Section 25 as canonical reference alongside Section 23.
+
+## 26. Current Launch-Control State / TAMS Pilot Readiness
+
+Alignment snapshot recorded 2026-06-12 per C-2026-06-12-03 (documentation-only; runtime/source unchanged at `5a9194a`; prior repo/doc HEAD `e3fdf94`). This section consolidates the current launch-control posture so nothing is missed; it does not reorder Section 14 and does not change any runtime behaviour.
+
+### 26.1 Completed and closed
+- **Section 14 Step 5B-final: CLOSED** — no localStorage source-of-truth remains; all app state is server-backed.
+- **W1–W5 controlled-write core-live regression: CLOSED** (W1 client / W2 task-create / W3A status+cancel / W3B close+reopen via approved scoped status-seed / W4A notes / W5 team-writes all PASS; W4 assignee-swap + reviewer-change deferred — controls live only in the F3-parked Assignments/Project Review views).
+- **TAMS firm-identity correction: CLOSED** (C-2026-06-12-01) — `firm_primary` is now `TAMS & CO LLP` / `tams.co.in` via the authenticated audited `PATCH /api/firms/[firmId]` route (one real `FIRM_UPDATE` audit row; no raw DB UPDATE).
+- **Final controlled smoke (TAMS pilot-readiness viewing): PASS / CLOSED** (C-2026-06-12-02) — read-only.
+- **Overnight phased UAT (UAT-0 / UAT-1 / UAT-2): PASS** (2026-06-12) — see 26.4.
+- **Active workspace identity:** `TAMS & CO LLP` / `tams.co.in`. Gmail Platform Owner (`pu_owner` / `singhal.accuron@gmail.com`) remains the control/admin login, intact.
+
+### 26.2 Current live baseline (post-UAT cleanup)
+Firm count 1; active firm `firm_primary` (`TAMS & CO LLP` / `tams.co.in` / Mumbai / ACTIVE / planId null); Client 0; Task 0; FirmMember 1; PlatformUser 1; TaskNote 0; TaskAssignee 0; no live `ZZ_TEST_PL_*` (or other `ZZ_*`) residue after UAT cleanup. Historical `ActivityLog` rows (total 18 as of this snapshot) are **retained as internal pre-pilot validation evidence** from the 5B cutover UAT waves plus the one `FIRM_UPDATE` — they are log-only, with no live data behind them, and are not to be deleted casually (see 26.9 / 26.10).
+
+### 26.3 UAT policy (phased, not a single final event)
+UAT is not one final event. The standing model is phased:
+- **UAT-0** — read-only spine (identity, signed-out 401 matrix, dashboard no-flash, section reads, localStorage, console).
+- **UAT-1** — core write flow (client create → task create → note → status moves → cancel).
+- **UAT-2** — team writes (add → role change → deactivate → reactivate).
+- **mini-UAT** — a focused re-verification after each newly approved feature (e.g., Practice Intelligence v0).
+- **final full UAT** — a complete pass after code freeze, before launch.
+
+Write-based UAT touches the **live Supabase DB even from localhost** (localhost and production share the same Supabase Postgres). Therefore every write-based UAT must use **labelled data, captured IDs, exact-count FK-safe cleanup, and post-cleanup baseline proof**, and must clean only the current slice's own rows (by captured entity IDs) — never historical/non-slice rows. Git hygiene: no `git add .` / `git add -A`; stage only explicitly named files.
+
+### 26.4 Overnight UAT result (2026-06-12)
+- **UAT-0: PASS** — baseline pristine; signed-in `/api/me` + UI all TAMS; signed-out `/api/{me,clients,tasks,team,modules,activity}` all 401; localStorage absent; console clean; all traffic GET-only.
+- **UAT-1: PASS** — `ZZ_TEST_PL_CLIENT` + `ZZ_TEST_PL_MGR` + `ZZ_TEST_PL_TASK` + note `ZZ_TEST_PL_NOTE`; lifecycle Open → In Progress → Pending Client → Cancel; 7 slice audit rows (CLIENT_CREATE, TEAM_MEMBER_ADD, TASK_CREATE, TASK_NOTE_ADD, TASK_STATUS_CHANGE ×2, TASK_CANCEL); 4 notes; one mutation + refetch per action; scoped cleanup; baseline restored.
+- **UAT-2: PASS** — `ZZ_TEST_PL_TEAM_MGR`; add → role change Manager→Partner (set deterministically via element ref + form_input, exactly one PATCH) → deactivate → reactivate; 4 audit rows; scoped cleanup; baseline restored.
+- During UAT: **no password reset, no module toggle, no status seed, no Netlify/browser ops, no source/doc/git/deploy/production actions.** Pankaj / Gmail control identity untouched; firm identity TAMS intact; ActivityLog total returned to 18 after each cleanup (no historical rows touched).
+- **Operational note (not a product bug):** the SPA's in-memory team/task list does not auto-refetch after a DB-side SQL cleanup; stale cards persist until a page reload, which resyncs to DB truth. This is a test-operations artifact of cleaning via SQL while the SPA holds state, not a defect.
+
+### 26.5 Remaining UAT gaps (acknowledged; non-blocking for the slices already passed)
+- **A8b Close/Reopen** under the fresh TAMS identity not re-run; optional, requires either an approved one-off scoped status-seed (no fake audit row) or a sign-in-capable non-admin assignee.
+- **Password reset** re-run — optional, approval-gated (credential action; audit-only verification; no real inbox required for `@example.com`).
+- **Module toggle** re-run — optional, approval-gated (touches firm `FirmModuleAccess` state).
+- **Full RBAC matrix** — blocked until sign-in-capable non-owner users exist (single-owner check is partial only; do not claim full RBAC coverage).
+- **TAMS-domain user mapping** — pending until the `pankaj.singhal@tams.co.in` mailbox exists.
+- **Practice Intelligence v0 mini-UAT** — required only if/when v0 is implemented.
+
+### 26.6 TAMS-domain user mapping decision (coexist model)
+Accepted: **coexist, do not replace.** The Gmail Platform Owner remains the active control/admin login. `pankaj.singhal@tams.co.in` will later be added as a **pilot-facing TAMS Firm Admin** (firm member of `firm_primary`, firmRole FIRM_ADMIN, platformRole STANDARD) once the mailbox exists — via a Pankaj-created Supabase Auth user (invite/reset flow) plus the app's audited Team "Add User" path. Do not delete, disable, or replace the Gmail control login. Do not create or map the TAMS user until explicit approval. The two identities coexist cleanly (different emails → different PlatformUsers → each its own single active FirmMember; the "single active FirmMember" rule is per-user, and the firm `emailDomain` is display-only, not part of login/RBAC/team-create).
+
+### 26.7 RLS / security decision
+RLS remains a **separate pre-pilot security wave** — not part of Step 5 and not started. First future step is a **read-only connection-role / RLS readiness investigation** (confirm `pg_class.relrowsecurity`, `pg_policies`, and the connection role Prisma uses). Key design question: the app talks to Postgres via Prisma on a pooled `DATABASE_URL` that likely **bypasses RLS** unless the DB session carries the user/firm context (Supabase JWT, `SET LOCAL`, or a constrained role) — this enforcement-model decision drives the whole wave. Current protection is route-layer tenant isolation (`requireAuth` + `firmId` filters + audited cross-firm helper); RLS is defence-in-depth required before real client data (Section 22.5). No policy implementation without separate approval; it is a real schema/migration wave.
+
+### 26.8 Practice Intelligence / AI decision
+- **Real LLM/AI assistant: DEFERRED** until backend / RBAC / tenant isolation / auditability / RLS / security are stable (consistent with Section 19 "Rules first, AI second").
+- **Deterministic Practice Intelligence v0: accepted as plan-first only** (not implemented). Candidate v0 features: Dashboard Practice Intelligence Preview, Recommended next steps (guided checklist), Smart task templates (deterministic CA/CPA chips that prefill the title), Suggested status wording snippets (deterministic, inserted into the notes field, nothing sent externally), and intelligence-framed empty states.
+- v0 must be **deterministic, frontend-only if built, no LLM, no external/model calls, no new data access (no RLS dependency), and must not overclaim**. If built, it ships behind a feature flag in a single controlled `page.tsx` wave with its own mini-UAT, plan-first → approval → build → read-only smoke.
+- **Approved language:** "Practice Intelligence", "Smart suggestions", "Suggested updates", "Recommended next steps". **Forbidden language:** "AI predicts", "AI decides", "AI-generated", "autonomous assistant", or anything implying live model intelligence before it exists.
+
+### 26.9 First-impression / adoption guidance
+- The tool should feel **helpful, not surveillance**; use supportive language. Adoption depends on reducing typing, improving clarity, helping staff/articles write better status updates, and giving managers visibility without WhatsApp-chasing.
+- **Empty states should guide users** (turn an empty TAMS workspace into guided onboarding).
+- **Positioning:** PracticeIQ is the **product brand**; TAMS is the **configured pilot workspace**. Single-firm pilot now; multi-firm onboarding is roadmap.
+- **Audit visibility:** historical `ActivityLog` rows must not be deleted casually; if a cleaner demo Activity Monitor is wanted, audit visibility/cleanup is a **separate governance decision** (see 26.10), not a default action.
+
+### 26.10 Deferred / parked items
+Multi-firm onboarding; real LLM/AI; billing; UI redesign; real Assignment backend (and `Task.assignmentId`); advanced people-control exposure (assignee-swap + reviewer-change UI, currently only in the parked Assignments/Project Review views); historical `ActivityLog` cleanup (governance-gated, separate plan-first approval required). None of these start without explicit approval.
+
+### 26.11 Next recommended execution phases
+1. **Phase 1** — doc-sync this master-plan alignment (C-2026-06-12-03).
+2. **Phase 2** — decide whether to run the optional gated UAT items (A8b Close/Reopen, password-reset, module toggle).
+3. **Phase 3** — decide whether to build the Practice Intelligence v0 controlled frontend wave.
+4. **Phase 4** — TAMS-domain user mapping once the mailbox exists.
+5. **Phase 5** — RLS readiness investigation (read-only first).
+6. **Phase 6** — final code-freeze UAT before launch.
+7. **Phase 7** — TAMS demo / pilot exposure.
+
+## 27. PracticeIQ Observability & Product Analytics Layer (planned later wave)
+
+Documented per C-2026-06-12-03 as a **planned later wave — not built before TAMS launch**. This section captures the decision and the shape of the future work; nothing here is implemented, and it does not change Section 14 or any runtime behaviour.
+
+### 27.1 Current state
+- PracticeIQ already has **`ActivityLog`** for business/audit events, supporting auditability and operational traceability.
+- It captures events such as: client create; task create / status change / cancel / close / reopen; task notes; team add / role change / password reset / deactivate / reactivate; firm update; and module access change.
+- The **Activity Monitor** displays the server-side activity history.
+
+### 27.2 Gap
+`ActivityLog` is **not** a full product-analytics or observability system. It does not fully track user journeys, screen visits, feature adoption, drop-offs, failed form attempts, frontend errors, API latency trends, abandoned actions, or issue-reproduction trails.
+
+### 27.3 Decision
+- **Do not build full product analytics before TAMS launch.** Add it as a planned later wave.
+- During the initial TAMS pilot, use **existing `ActivityLog` + manual issue tracking**.
+- Build proper observability / product analytics only **after** launch stability and security priorities (notably RLS) are under control.
+
+### 27.4 Future planned wave
+- **Name:** `PracticeIQ Observability & Product Analytics Layer`.
+- **Purpose:** debug issues faster; identify user drop-offs; track adoption; separate training issues from product bugs; support future Practice Intelligence.
+- **Suggested phased approach:**
+  - **Phase 0** — document metrics; use `ActivityLog` + a manual issue log.
+  - **Phase 1** — lightweight app telemetry / event capture.
+  - **Phase 2** — product-analytics dashboard.
+  - **Phase 3** — AI-assisted issue diagnosis and usage intelligence (subject to the Section 19 / 26.8 AI deferral until the security spine is stable).
+
+### 27.5 Future telemetry categories
+Login/session events; page/screen views; modal opened / submitted / abandoned; validation errors; API failures; frontend runtime errors; feature usage; task-update frequency; user adoption by role; slow endpoints / page loads; support / bug-report events.
+
+### 27.6 Privacy / security guardrails
+No passwords; no tokens; no reset links; no secrets; no full client-sensitive text; no unnecessary PII. Acceptable fields: `firmId`, `userId`, `action`, `timestamp`, event type. Metadata must be **minimal and structured** (consistent with the existing `writeActivityLog` field-names-only / `targetEmailDomain`-only discipline). Telemetry remains tenant-scoped and must not weaken Section 25 guardrails or the RLS posture (26.7).
+
+### 27.7 Product principle
+Observability is for **product improvement and support, not employee surveillance.** Staff should feel **helped, not watched.** User-facing language stays supportive (aligned with 26.9).
+
+### 27.8 Additional platform principles now locked
+- **Adoption before enforcement.**
+- **Intelligence without overclaiming.**
+- **Server data as the source of truth.**
+- **Tenant isolation and RBAC before multi-firm scaling.**
+- **`ActivityLog` audit retained; historical cleanup is governance-gated.**
+- **PracticeIQ remains the product brand; TAMS is the first configured pilot workspace.**
+- **Real LLM/AI, full product analytics, multi-firm onboarding, billing, and UI redesign remain phased/deferred unless separately approved.**
