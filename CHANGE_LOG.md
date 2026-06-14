@@ -2040,3 +2040,29 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Status**: completed (documentation-only). **Next gate: commit/push this reconciliation doc-sync, then Pankaj's approved next product step - (A) TAMS-domain user mapping for `pankaj.singhal@tams.co.in`, or (B) the RLS pre-pilot security wave - plan-first.**
 
 ---
+
+## C-2026-06-14-02 - TAMS app-side user mapping live + dual-login identity UAT PASS: documentation sync
+
+- **Date**: 2026-06-14
+- **Task**: Record that the TAMS-domain pilot user is now mapped into the PracticeIQ app layer and that dual-login identity resolution was verified on localhost. Documentation-only; no source/runtime change.
+- **Runtime/source commit**: remains `5835d37` (Practice Intelligence v0). Latest doc-sync commit remains `d8bce67` (C-2026-06-14-01). No new runtime SHA - documentation-only, per Synchronization Rule #8. The TAMS mapping was a controlled DB data seed (not a code change), so it does not move the runtime/code marker.
+- **TAMS app-side mapping (live, via controlled DB seed; executed + post-checked earlier this session)**:
+  - `PlatformUser` `pu_tams_admin` = `Pankaj Singhal (TAMS)` / `pankaj.singhal@tams.co.in` / `platformRole = STANDARD` / `isActive = true` (non-authenticating sentinel `passwordHash`; login is via Supabase Auth only).
+  - `FirmMember` `fm_tams_admin` = `firm_primary` / `userId = pu_tams_admin` / `firmRole = FIRM_ADMIN` / `isActive = true`.
+  - Gmail owner/fallback unchanged: `pu_owner` (`singhal.accuron@gmail.com`, PLATFORM_OWNER, active) + `fm_owner` (FIRM_ADMIN, active). No rollback needed; firm count still 1; both users hold exactly one active membership.
+  - **Governance note**: direct controlled DB seed, so **no `TEAM_MEMBER_ADD` ActivityLog row exists** for this mapping (consistent with how the `pu_owner`/`fm_owner` baseline was created).
+- **Dual-login identity UAT (localhost, read-only verification; user-driven logins, no Chrome bridge): PASS / CLOSED**:
+  - TAMS `/api/me`: `userId=pu_tams_admin`, `firmMemberId=fm_tams_admin`, `name=Pankaj Singhal (TAMS)`, `platformRole=STANDARD`, `firmRole=FIRM_ADMIN`, `firmId=firm_primary`, `firmName=TAMS & CO LLP` (no `email` field, by design).
+  - Gmail fallback `/api/me`: `userId=pu_owner`, `firmMemberId=fm_owner`, `name=Pankaj Singhal`, `platformRole=PLATFORM_OWNER`, `firmRole=FIRM_ADMIN`, `firmId=firm_primary`, `firmName=TAMS & CO LLP`.
+  - Team UI: both members visible, Active, Firm Admin under TAMS & CO LLP.
+  - Orphaned TAMS Auth-user blocker resolved (the previously confirmed-but-unmapped Auth user now maps to a live PlatformUser + FirmMember).
+- **Note-chip / ActivityLog actor UAT: DEFERRED** (read-only Phase A pre-check this session found `firm_primary` Task count = 0, Client count = 0, TaskNote count = 0 - no safe existing disposable task; the single-manual-write model cannot be met without first seeding a client + task). Carried forward as a future write-enabled gate: seed labelled disposable `ZZ_TEST_*` client + task -> one manual TAMS note write -> read-only verify actor resolves to `pu_tams_admin` / `Pankaj Singhal (TAMS)` -> scoped cleanup if approved.
+- **Other deferred gates (unchanged)**: Manager test user / assignee-path UAT (FIRM_ADMIN is excluded from the assignee picker) remains separate unless explicitly combined; RLS pre-pilot security wave remains a later, separate wave.
+- **TAMS identity lifecycle note**: `pankaj.singhal@tams.co.in` is a **temporary PracticeIQ testing identity**. It should remain active while useful for the TAMS pilot, enhancement testing, reset/login testing, and UAT cycles, and should later be retired through a **controlled deactivation gate** - not immediately, and not by deactivating the mailbox first.
+- **Files changed (this documentation-only wave)**: `CURRENT_STATUS.md`, `MASTER_PROJECT.md`, `CHANGE_LOG.md` (this entry).
+- **No new decision / no DECISION_LOG**: records executed mapping + UAT evidence; no new product/architecture decision taken here.
+- **Out of scope (intentional)**: no source/runtime/code change; no schema/migration/API/package/env/config change; no Netlify/Supabase/DB/Auth mutation; no POST/PATCH/PUT/DELETE; no email; no Chrome bridge/automation; no staging/commit/push in this wave.
+- **Testing required**: none (documentation only). The mapping post-checks and the dual-login `/api/me` UAT were completed and recorded earlier this session.
+- **Status**: completed (documentation-only). **Next gate: commit/push this doc-sync (Windows-authoritative; doc-only push to `main` may still trigger Netlify - production-release check applies), then the deferred write-enabled note-chip/actor UAT or the RLS pre-pilot security wave, plan-first.**
+
+---
