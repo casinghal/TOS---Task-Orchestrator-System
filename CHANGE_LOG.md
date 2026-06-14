@@ -2023,3 +2023,20 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Status**: master-plan alignment captured. **Next gate: commit/push this alignment doc-sync, then Pankaj's decision on (a) optional gated UAT items, (b) Practice Intelligence v0 plan/build, (c) TAMS-domain user mapping when the mailbox exists; then the RLS readiness investigation.**
 
 ---
+
+## C-2026-06-14-01 - Practice Intelligence v0 production reconciliation + Section 14 next-step correction: documentation sync
+
+- **Date**: 2026-06-14
+- **Task**: Reconcile the governance docs with the already-shipped Practice Intelligence v0 production runtime, and correct the stale Section 14 next-step priority wording that still named Step 3F as next while later steps are recorded complete.
+- **Runtime/source commit**: advances `5a9194a` -> `5835d37` (Practice Intelligence v0, `src/app/page.tsx`). Prior repo/doc HEAD before this doc-sync is `43372b3` (the C-2026-06-12-03 master-plan alignment doc-sync). This entry records a SOURCE/runtime advance that reached production ahead of its doc-sync (outside the usual controlled-wave + doc-sync discipline); the granular implementation record (exact diff, UAT) was not captured in a controlled wave and is reconstructed from Pankaj's handoff, not independently re-verified in this doc-only gate.
+- **Production evidence (operator-supplied; not re-run in this doc-only gate)**: Netlify deploy `6a2daa0f` ready/published on `main` serving `5835d37`; production signed-out `GET /api/me` and `GET /api/team` both 401 (auth-required).
+- **Files changed (this documentation-only wave)**:
+  - `CURRENT_STATUS.md` - runtime/code marker `5a9194a` -> `5835d37`; repo-HEAD line updated (prior doc-sync HEAD `43372b3`, production evidence noted); "Last updated" line extended with C-2026-06-14-01; the stale "Next 5 to 10 Priority Tasks" block items naming Step 3F as the next controlled step relabelled `[Historical - COMPLETE]` (3F, Step 4, and Step 5/5B-final all complete; live next gates = TAMS user mapping then RLS).
+  - `MASTER_PROJECT.md` - Section 26.8 corrected: Practice Intelligence v0 recorded as IMPLEMENTED and LIVE at `5835d37` (was "accepted as plan-first only / not implemented"); advanced AI/intelligence (live LLM/model inference, predictions, autonomous assistance) explicitly kept PARKED unless separately approved; approved/forbidden-language block preserved.
+  - `CHANGE_LOG.md` - this entry.
+- **No new decision / no DECISION_LOG**: reconciliation of an already-shipped commit and correction of stale wording; no new product/architecture decision is taken here.
+- **Out of scope (intentional)**: no source/runtime/code change; no schema/migration/API/package/env/config change; no Netlify/Supabase/DB/Apps Script action; no Chrome bridge; no POST/PATCH/DELETE; no staging/commit/push in this wave.
+- **Testing required**: none (documentation only). Production evidence above was operator-supplied and not re-run in this gate.
+- **Status**: completed (documentation-only). **Next gate: commit/push this reconciliation doc-sync, then Pankaj's approved next product step - (A) TAMS-domain user mapping for `pankaj.singhal@tams.co.in`, or (B) the RLS pre-pilot security wave - plan-first.**
+
+---
