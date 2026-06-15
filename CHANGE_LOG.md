@@ -2066,3 +2066,30 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Status**: completed (documentation-only). **Next gate: commit/push this doc-sync (Windows-authoritative; doc-only push to `main` may still trigger Netlify - production-release check applies), then the deferred write-enabled note-chip/actor UAT or the RLS pre-pilot security wave, plan-first.**
 
 ---
+
+## C-2026-06-15-01 - Note-chip / ActivityLog actor UAT PASS + exact-ID test-data cleanup: documentation sync
+
+- **Date**: 2026-06-15
+- **Task**: Record that the previously deferred note-chip / ActivityLog actor UAT was executed and PASSED, that TAMS app-session note attribution was proven, and that the labelled test scaffold was removed by approved exact-ID cleanup restoring the baseline. Documentation-only; no source/runtime change.
+- **Runtime/source commit**: remains `5835d37` (Practice Intelligence v0). Repo/doc HEAD before this doc-sync was `15f3c2d`. No new runtime SHA - documentation-only. The UAT note write and the cleanup were controlled DB data actions, not code changes, so they do not move the runtime/code marker.
+- **Note-chip / ActivityLog actor UAT: PASS / CLOSED** (supersedes the C-2026-06-14-02 DEFERRED disposition):
+  - Session identity `pu_tams_admin` / `Pankaj Singhal (TAMS)`; the note was added through the real TAMS app session.
+  - UI rendered the note chip as `Pankaj Singhal (TAMS)`.
+  - `TaskNote.authorId = pu_tams_admin`; `ActivityLog.actorId = pu_tams_admin`.
+  - Exactly one note and one `TASK_NOTE_ADD` row were created (no SQL note insert, no second note, no lifecycle/status change).
+  - **Root cause accepted**: progress notes were usable; the "view-only" impression came from disabled workflow/lifecycle buttons. Lifecycle/workflow button gating is separate from the note form. **No code fix needed for progress notes.**
+- **Approved exact-ID cleanup** (Supabase project PracticeIQ `sjeuilkccpcsjonvrfyu`; read-only pre-check -> ordered FK-safe deletes -> post-check):
+  - Deleted `TaskNote` `cmqeorx0i00011ao8r6ar180z`.
+  - Deleted `Task` `zz_test_notechip_task_20260615`.
+  - Deleted `Client` `zz_test_notechip_client_20260615`.
+  - `TaskAssignee`: none existed (0 deleted).
+  - **ActivityLog evidence row `cmqeorx2q00031ao8rdbip14j` RETAINED** - no FK constraint required deleting it (`ActivityLog.entityId` is a plain reference, not a `Task` FK).
+  - **Baseline restored**: `firm_primary` Client 0 / Task 0 / TaskNote 0 / TaskAssignee 0. `ActivityLog` total 20 (unchanged). `FirmMember` 2 / `PlatformUser` 2 unchanged (live Gmail-owner + TAMS-admin mappings).
+- **Other deferred gates (unchanged)**: Manager test user / assignee-path UAT remains separate; **RLS pre-pilot security wave remains a later, separate wave** (Supabase advisory: RLS disabled on all 13 public tables).
+- **Files changed (this documentation-only wave)**: `CURRENT_STATUS.md`, `MASTER_PROJECT.md`, `CHANGE_LOG.md` (this entry).
+- **No new decision / no DECISION_LOG**: records executed UAT evidence + approved cleanup; no new product/architecture decision taken here.
+- **Out of scope (intentional)**: no source/runtime/code change; no schema/migration/API/package/env/config change; no Netlify/Auth mutation; no further DB writes beyond the approved exact-ID cleanup; no email; no Chrome bridge/automation; no G-Drive bus; no staging/commit/push in this wave.
+- **Testing required**: none (documentation only). The UAT evidence and the cleanup pre-/post-checks were completed and recorded earlier this session.
+- **Status**: completed (documentation-only). **Next gate: commit/push this doc-sync (Windows-authoritative; doc-only push to `main` may still trigger Netlify - production-release check applies), then RLS Phase 1 design (plan-only).**
+
+---
