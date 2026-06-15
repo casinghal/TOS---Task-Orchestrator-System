@@ -2093,3 +2093,21 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Status**: completed (documentation-only). **Next gate: commit/push this doc-sync (Windows-authoritative; doc-only push to `main` may still trigger Netlify - production-release check applies), then RLS Phase 1 design (plan-only).**
 
 ---
+
+## C-2026-06-15-02 - RLS Gate 1-A1a foundation (constrained role + app-schema bootstrap functions): documentation sync
+
+- **Date**: 2026-06-15
+- **Task**: Record the executed RLS foundation gate 1-A1a (DB-object creation via the Supabase SQL editor) and its validation. Repo documentation-only; the DB objects were created manually, not via a committed migration.
+- **Runtime/source commit**: remains `5835d37`. Repo/doc HEAD before this doc-sync was `a6f4046`. No runtime/code change; the role/schema/functions are database state, not repo code.
+- **Created in the database (Gate 1-A1a; manual Supabase SQL editor; validated PASS)**:
+  - Role `practiceiq_app`: LOGIN, **NOBYPASSRLS**, NOSUPERUSER, NOCREATEDB, NOCREATEROLE; **zero table grants**.
+  - Schema `app` (owner `postgres`).
+  - Functions: `app.current_firm_id()`, `app.current_actor()`, `app.is_platform_owner()` (plain STABLE); `app.resolve_session(text)` and `app.begin_impersonation(text,text,text,text,text,text)` (SECURITY DEFINER, owned `postgres`). PUBLIC execute revoked on all five; no execute granted to the role yet.
+- **Validation evidence**: role flags `rolcanlogin=t / rolbypassrls=f / rolsuper=f / rolcreatedb=f / rolcreaterole=f`; `table_grants=0`; functions present with correct SECURITY DEFINER / owner / no-PUBLIC-execute; `app.resolve_session('pankaj.singhal@tams.co.in')` returns `pu_tams_admin / STANDARD / firm_primary / FIRM_ADMIN`; unknown email returns 0 rows; pooler smoke as `practiceiq_app.sjeuilkccpcsjonvrfyu` returned `current_user=session_user=practiceiq_app`, `ok=1`. **R1 (pooler accepts a constrained NOBYPASSRLS role) RESOLVED.**
+- **Enforcement posture: NONE.** The app still connects as `postgres`. No RLS enabled, no policies, no table grants. This is a foundation gate only, **not** tenant-isolation enforcement.
+- **Files changed (this documentation-only wave)**: `DECISION_LOG.md` (D-2026-06-15-01), `CURRENT_STATUS.md`, `MASTER_PROJECT.md` (Section 26.7), `CHANGE_LOG.md` (this entry). Living docs in `00_Project_Memory/` updated separately.
+- **Out of scope (intentional)**: no source/runtime/code change; no schema/migration file (the SQL was applied manually and is not yet committed as a migration); no grants/RLS/policies; no app `DATABASE_URL` change; no Netlify/deploy; no Supabase Auth mutation; no git stage/commit/push in this wave.
+- **Testing required**: none (documentation only). The DB-object validation and the pooler smoke were completed and recorded.
+- **Status**: completed (documentation-only). **Next gate: 1-B0 plan-only tenant-context plumbing (`withTenant` wrapper, `set_config(..., true)` per transaction), app still on `postgres`.**
+
+---
