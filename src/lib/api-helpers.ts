@@ -92,47 +92,42 @@ export async function requireSession(_request: Request): Promise<SessionUser | n
   const email = user.email.trim().toLowerCase();
   if (!email) return null;
 
-  // 4. Map Supabase user to PlatformUser by normalized email.
-  const platformUser = await prisma.platformUser.findUnique({
-    where: { email },
-    select: {
-      id: true,
-      email: true,
-      platformRole: true,
-      isActive: true,
-    },
-  });
-  if (!platformUser || !platformUser.isActive) return null;
+  // 4. Resolve identity via the SECURITY DEFINER DB function
+  //    app.resolve_session(p_email). Per RLS Gate 1-B2 this replaces the prior
+  //    in-app PlatformUser + FirmMember lookups. The function enforces the same
+  //    Stage 0 rules in-DB: active user; exactly one active FirmMember (applies
+  //    to PLATFORM_OWNER too - no all-firm escape; cross-firm access is the
+  //    separate audited impersonation path); and valid platform/firm role
+  //    codes. It returns 0 rows on any violation, so at most one row is
+  //    possible. ${email} is a parameterized binding (no interpolation).
+  //    Being SECURITY DEFINER (owned by postgres), identity resolution will
+  //    continue to work once the app later connects as a constrained
+  //    NOBYPASSRLS runtime role.
+  const rows = await prisma.$queryRaw<
+    { user_id: string; platform_role: string; firm_id: string; firm_role: string }[]
+  >`SELECT user_id, platform_role, firm_id, firm_role FROM app.resolve_session(${email})`;
 
-  // 5. Narrow platformRole. Stored as a String column; bad data → fail closed.
-  const platformRole = normalizePlatformRole(platformUser.platformRole);
+  // 5. Fail-closed: exactly one resolved row required. Any other count
+  //    (0 = unknown/inactive/zero-or-multi-membership/invalid-role) -> null.
+  if (rows.length !== 1) return null;
+  const row = rows[0];
+
+  // 6. Re-narrow the returned role codes defensively. The DB function already
+  //    filters to canonical codes; unexpected data -> fail closed.
+  const platformRole = normalizePlatformRole(row.platform_role);
   if (!platformRole) return null;
-
-  // 6. Resolve active FirmMember rows for this user.
-  const memberships = await prisma.firmMember.findMany({
-    where: { userId: platformUser.id, isActive: true },
-    select: { firmId: true, firmRole: true },
-  });
-
-  // 7. Stage 0 fail-closed: exactly one active membership required.
-  //    Applies uniformly to STANDARD and PLATFORM_OWNER. Cross-firm access
-  //    for PLATFORM_OWNER is Step 4F (audited impersonation), not here.
-  if (memberships.length !== 1) return null;
-
-  const membership = memberships[0];
-
-  // 8. Narrow firmRole. Stored as a String column; bad data → fail closed.
-  const firmRole = normalizeFirmRole(membership.firmRole);
+  const firmRole = normalizeFirmRole(row.firm_role);
   if (!firmRole) return null;
 
-  // 9. Build the SessionUser. firmId comes only from the server-side
-  //    FirmMember lookup; client-supplied firmId is never trusted.
+  // 7. Build the SessionUser. firmId comes only from the server-side
+  //    resolution; client-supplied firmId is never trusted. `email` is the
+  //    normalized Supabase auth input (resolve_session does not return email).
   return {
-    userId: platformUser.id,
-    email: platformUser.email,
+    userId: row.user_id,
+    email,
     platformRole,
     firmRole,
-    firmId: membership.firmId,
+    firmId: row.firm_id,
   };
 }
 
