@@ -2136,3 +2136,18 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Status**: completed (local-only, unpushed; negative-case UAT pending).
 
 ---
+
+## C-2026-06-16-03 - RLS Gate 1-B1 + 1-B2 + doc checkpoint RELEASED to production: push + deploy + smoke + watch PASS
+
+- **Date**: 2026-06-16
+- **Task**: Controlled production release of the three local commits (`f532641`, `54ae740`, `4b62d8e`) to `origin/main`; Netlify deploy monitoring; read-only production smoke; 60-minute watch.
+- **Files changed**: none (release/ops event; this is the documentation record).
+- **Push**: `origin/main` advanced `b124e66` -> `4b62d8e`. Netlify auto-deployed production deploy `6a30fce43b82780008ccb224` (commit `4b62d8e`): state `ready`/`current`, context `production`, plugin `success`, error `null`, secret scan 74 files / 0 matches; published 2026-06-16T07:36:55Z.
+- **Production smoke (read-only)**: signed-in `/api/me` `ok:true` (`pu_tams_admin` / STANDARD / FIRM_ADMIN / `firm_primary` / TAMS & CO LLP) - confirms `requireSession` via `app.resolve_session` live; incognito `/api/me` 401 (fail-closed); dashboard, task queue, clients, team, reports, forms, and admin/apartment sections opened with no visible errors across repeated refreshes. Activity feed not checked (non-blocking). Production smoke PASS.
+- **Watch**: 60-minute window (07:36:55Z -> ~08:37Z) elapsed clean; no new/failed deploy, no rollback. 60-minute watch PASS. Rollback baseline retained: deploy `6a2fe5b58eb21500087120b2` / commit `b124e66`.
+- **Known follow-up (not a release blocker)**: TAMS-domain email login shows "Use your registered work email ID for this firm"; registered Gmail login works. Verify the intended admin login email + Supabase Auth user mapping before multi-user TAMS UAT.
+- **Net effect**: the 1-B2 `requireSession` -> `app.resolve_session` cutover is LIVE in production. RLS still NOT enforced (app still `postgres`; no grants, no policies, no runtime DB role flip).
+- **Testing required**: none further (release smoke + watch complete).
+- **Status**: completed.
+
+---
