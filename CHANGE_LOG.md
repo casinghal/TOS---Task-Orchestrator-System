@@ -2111,3 +2111,28 @@ Code change history pre-takeover (Codex era) is not reconstructed here. This log
 - **Status**: completed (documentation-only). **Next gate: 1-B0 plan-only tenant-context plumbing (`withTenant` wrapper, `set_config(..., true)` per transaction), app still on `postgres`.**
 
 ---
+
+## C-2026-06-16-01 - RLS Gate 1-B1 withTenant transaction wrapper (library-only, unused): local commit
+
+- **Date**: 2026-06-16
+- **Task**: Create the tenant-context transaction wrapper primitive for the RLS track (Gate 1-B1). Library only; not wired to any route.
+- **Files changed**: `src/lib/with-tenant.ts` (new).
+- **Reason**: Establish a correct `withTenant` primitive that sets the three confirmed transaction-local GUCs (`app.firm_id`, `app.actor_user_id`, `app.platform_role`) via parameterized `set_config(..., true)` as the first statements of a Prisma interactive transaction, before any route depends on it. GUC keys confirmed by Gate 1-B0 read-only DB introspection.
+- **Testing required**: `npm run lint`, `npm run db:validate`, `npx tsc --noEmit`, `npm run build` - all PASS on Windows. No DB executed (wrapper unused).
+- **Local commit**: `f532641` (one file). NOT pushed; not deployed. Branch ahead of `origin/main`. Production/Netlify has not been changed by this local commit; the exact production deploy commit must be rechecked before any release decision.
+- **Status**: completed (local-only, unpushed).
+
+---
+
+## C-2026-06-16-02 - RLS Gate 1-B2 requireSession cutover to app.resolve_session: local commit
+
+- **Date**: 2026-06-16
+- **Task**: Cut over `requireSession()` identity resolution from in-app Prisma lookups (PlatformUser + FirmMember) to the SECURITY DEFINER DB function `app.resolve_session(p_email)`, preserving the `SessionUser` shape and all fail-closed rules.
+- **Files changed**: `src/lib/api-helpers.ts` (`requireSession` internal identity-lookup section only).
+- **Reason**: Route identity resolution through the definer function so it continues to work once the app later connects as the constrained NOBYPASSRLS role; one DB call replaces two ORM lookups. Pre-check confirmed canonical stored roles (active platformRole {PLATFORM_OWNER 1, STANDARD 1}; active firmRole {FIRM_ADMIN 2}; noncanonical 0/0), so the cutover is behaviour-neutral.
+- **Testing required**: `npm run lint`, `npm run db:validate`, `npx tsc --noEmit`, `npm run build` - all PASS on Windows. Positive-path localhost parity smoke PASS (`/api/me` {ok:true}: STANDARD / FIRM_ADMIN / firm_primary; no 401; dashboard loaded; no write actions). Negative-case fixture UAT DEFERRED (no fixture creation approved).
+- **Known nuance**: `SessionUser.email` now carries the normalized Supabase auth input (lowercased), not the DB-stored casing (`resolve_session` returns no email). `/api/me` does not expose email, so this is not observable there; accepted/deferred. The file top doc-comment still describes the old PlatformUser/FirmMember mechanism (stale; left untouched per scope; refresh in a later doc cleanup).
+- **Local commit**: `54ae740` (one file). NOT pushed; not deployed. Branch ahead of `origin/main` by 2 (with `f532641`). Production/Netlify has not been changed by this local commit; the exact production deploy commit must be rechecked before any release decision.
+- **Status**: completed (local-only, unpushed; negative-case UAT pending).
+
+---
